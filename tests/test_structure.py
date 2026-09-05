@@ -15,10 +15,12 @@ def test_alignment_result_dataclass():
         transform_matrix=np.eye(3, dtype=np.float64),
         alignment_score=0.85,
         coverage=0.95,
+        edge_score=0.80,
+        hole_diff=0,
+        combined_score=0.875,
         strategy="homography",
         high_confidence=True,
         identified=True,
-        inlier_ratio=0.75,
     )
 
     assert result.aligned_image.shape == (100, 100)
@@ -26,7 +28,6 @@ def test_alignment_result_dataclass():
     assert result.alignment_score == 0.85
     assert result.strategy == "homography"
     assert result.high_confidence is True
-    assert result.inlier_ratio == 0.75
 
 
 def test_align_basic_functionality():
@@ -46,7 +47,6 @@ def test_align_basic_functionality():
     assert 0.0 <= result.alignment_score <= 1.0
     assert result.strategy in ["ecc_fine", "homography", "affine_coarse_only", "identity"]
     assert isinstance(result.high_confidence, bool)
-    assert result.inlier_ratio is None or isinstance(result.inlier_ratio, float)
 
 
 def test_apply_transform_implemented():

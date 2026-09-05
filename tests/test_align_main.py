@@ -31,7 +31,6 @@ def test_align_result_has_all_fields():
     assert hasattr(result, 'alignment_score')
     assert hasattr(result, 'strategy')
     assert hasattr(result, 'high_confidence')
-    assert hasattr(result, 'inlier_ratio')
 
 
 def test_align_aligned_image_properties():
