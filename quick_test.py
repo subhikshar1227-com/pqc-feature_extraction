@@ -379,8 +379,6 @@ def print_result(name: str, result, rank: int = None) -> None:
     print(f"   Hole Diff:       {result.hole_diff}")
     print(f"   Alignment Score: {result.alignment_score:.4f}")
     print(f"   Strategy:        {result.strategy}")
-    if result.inlier_ratio:
-        print(f"   Inlier Ratio:    {result.inlier_ratio:.2%}")
 
 
 def save_outputs(

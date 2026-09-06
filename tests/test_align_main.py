@@ -159,13 +159,14 @@ def test_align_logging_on_low_confidence(caplog):
                    for record in caplog.records)
 
 
-def test_align_inlier_ratio_type():
+def test_align_has_no_inlier_ratio():
+    """inlier_ratio was removed from AlignmentResult — verify it no longer exists."""
     cad_map = create_simple_shape()
     real_map = create_simple_shape()
 
     result = align(cad_map, real_map)
 
-    assert result.inlier_ratio is None or isinstance(result.inlier_ratio, float)
+    assert not hasattr(result, 'inlier_ratio')
 
 
 def test_align_with_resolution_mismatch():

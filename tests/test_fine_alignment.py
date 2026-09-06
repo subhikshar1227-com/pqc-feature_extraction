@@ -1,10 +1,7 @@
 """
 Tests for fine alignment.
 
-_detect_and_match_features and _estimate_similarity were removed when
-ORB was replaced with ECC. These tests now cover:
-  - _validate_similarity  (kept for backward compat)
-  - _compute_fine_transform  (ECC-based)
+_compute_fine_transform now returns Optional[np.ndarray] (single value, not a tuple).
 """
 
 import numpy as np
@@ -45,11 +42,11 @@ def test_validate_similarity_boundary_values():
 
 
 # ---------------------------------------------------------------------------
-# _compute_fine_transform  (ECC)
+# _compute_fine_transform  (ECC) — returns Optional[np.ndarray]
 # ---------------------------------------------------------------------------
 
-def test_compute_fine_transform_returns_tuple():
-    """_compute_fine_transform must always return a 2-tuple."""
+def test_compute_fine_transform_returns_matrix_or_none():
+    """_compute_fine_transform must return a 3×3 matrix or None."""
     cad = np.zeros((100, 100), dtype=np.uint8)
     cv2.rectangle(cad, (20, 20), (80, 80), 255, 2)
     real = np.zeros((100, 100), dtype=np.uint8)
@@ -57,8 +54,7 @@ def test_compute_fine_transform_returns_tuple():
     coarse = np.eye(3, dtype=np.float64)
 
     result = _compute_fine_transform(cad, real, coarse)
-    assert isinstance(result, tuple)
-    assert len(result) == 2
+    assert result is None or (isinstance(result, np.ndarray) and result.shape == (3, 3))
 
 
 def test_compute_fine_transform_identity_input():
@@ -68,34 +64,23 @@ def test_compute_fine_transform_identity_input():
     cv2.circle(img,   (75, 75),  20, 255, 2)
     coarse = np.eye(3, dtype=np.float64)
 
-    M_total, inlier_ratio = _compute_fine_transform(img.copy(), img.copy(), coarse)
-
-    # ECC has no inlier_ratio — should be None
-    assert inlier_ratio is None
+    M_total = _compute_fine_transform(img.copy(), img.copy(), coarse)
 
     if M_total is not None:
         assert M_total.shape == (3, 3)
         assert M_total.dtype == np.float64
-        # Translation correction should be tiny for identical images
-        tx = M_total[0, 2]
-        ty = M_total[1, 2]
-        assert abs(tx) < 5.0, f"Expected near-zero tx, got {tx:.2f}"
-        assert abs(ty) < 5.0, f"Expected near-zero ty, got {ty:.2f}"
+        assert abs(M_total[0, 2]) < 5.0, f"Expected near-zero tx, got {M_total[0, 2]:.2f}"
+        assert abs(M_total[1, 2]) < 5.0, f"Expected near-zero ty, got {M_total[1, 2]:.2f}"
 
 
 def test_compute_fine_transform_empty_images_graceful():
-    """Completely empty edge maps — ECC may fail gracefully (None,None) or succeed."""
+    """Completely empty edge maps — ECC should fail gracefully and return None."""
     cad  = np.zeros((100, 100), dtype=np.uint8)
     real = np.zeros((100, 100), dtype=np.uint8)
     coarse = np.eye(3, dtype=np.float64)
 
     result = _compute_fine_transform(cad, real, coarse)
-    # Should not raise — either returns (None, None) or a valid matrix
-    assert isinstance(result, tuple)
-    assert len(result) == 2
-    M, ir = result
-    if M is not None:
-        assert M.shape == (3, 3)
+    assert result is None or (isinstance(result, np.ndarray) and result.shape == (3, 3))
 
 
 def test_compute_fine_transform_small_shift():
@@ -109,7 +94,7 @@ def test_compute_fine_transform_small_shift():
     cv2.circle(shifted, (103, 103), 30, 255, 2)
 
     coarse = np.eye(3, dtype=np.float64)
-    M_total, _ = _compute_fine_transform(base, shifted, coarse)
+    M_total = _compute_fine_transform(base, shifted, coarse)
 
     if M_total is not None:
         assert M_total.shape == (3, 3)
