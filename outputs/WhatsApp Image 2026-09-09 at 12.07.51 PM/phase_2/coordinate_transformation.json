@@ -1,0 +1,13 @@
+{
+  "input_coordinate_system": "image_pixels",
+  "output_coordinate_system": "transformation_unavailable",
+  "transformation_source_available": false,
+  "transformation_source_valid": false,
+  "preprocessing_resize": false,
+  "transformation_successful": false,
+  "transformation_errors": [
+    "No transformation source provided"
+  ],
+  "feature_transform_results": [],
+  "save_timestamp": "2026-09-16 22:33:20"
+}

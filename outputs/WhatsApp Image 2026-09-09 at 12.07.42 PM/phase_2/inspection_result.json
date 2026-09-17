@@ -1,0 +1,145 @@
+{
+  "source_image_path": "data\\inputs\\WhatsApp Image 2026-09-09 at 12.07.42 PM.jpeg",
+  "dxf_path": "C:\\Users\\User\\Desktop\\projects\\features\\PeenyaProjectMSME\\data\\dxf\\c-bp.dxf",
+  "blueprint_name": null,
+  "inspection_status": "REVIEW",
+  "inspection_timestamp": "2026-09-16 22:39:51",
+  "inspection_duration_seconds": 0.0004169940948486328,
+  "quality_metrics": {
+    "completeness_score": null,
+    "accuracy_score": null,
+    "precision_score": null,
+    "confidence_score": 0.0,
+    "overall_quality_score": null,
+    "feature_count_accuracy": null,
+    "geometric_accuracy": null,
+    "detection_reliability": 0.0
+  },
+  "inspection_summary": {
+    "total_expected_features": 5,
+    "total_actual_features": 0,
+    "matched_features": 0,
+    "missing_features": 0,
+    "extra_features": 0,
+    "acceptable_features": 0,
+    "defective_features": 0,
+    "expected_circles": 4,
+    "actual_circles": 0,
+    "expected_holes": 1,
+    "actual_holes": 0,
+    "critical_issues": [
+      "Geometric matching blocked due to coordinate system incompatibility"
+    ],
+    "warnings": [],
+    "recommendations": [
+      "Establish valid pixel-to-CAD/mm coordinate transformation to enable geometric comparison"
+    ]
+  },
+  "feature_details": [
+    {
+      "feature_id": "circle_1",
+      "inspection_result": "not_determined",
+      "quality_score": null,
+      "expected_feature_id": "circle_1",
+      "actual_feature_id": null,
+      "quality_metrics": {},
+      "deviations": {},
+      "inspection_notes": [
+        "Geometric comparison not performed due to coordinate system incompatibility"
+      ]
+    },
+    {
+      "feature_id": "semantic_group_2_hole_1",
+      "inspection_result": "not_determined",
+      "quality_score": null,
+      "expected_feature_id": "semantic_group_2_hole_1",
+      "actual_feature_id": null,
+      "quality_metrics": {},
+      "deviations": {},
+      "inspection_notes": [
+        "Geometric comparison not performed due to coordinate system incompatibility"
+      ]
+    },
+    {
+      "feature_id": "semantic_group_3_circle_5",
+      "inspection_result": "not_determined",
+      "quality_score": null,
+      "expected_feature_id": "semantic_group_3_circle_5",
+      "actual_feature_id": null,
+      "quality_metrics": {},
+      "deviations": {},
+      "inspection_notes": [
+        "Geometric comparison not performed due to coordinate system incompatibility"
+      ]
+    },
+    {
+      "feature_id": "circle_7",
+      "inspection_result": "not_determined",
+      "quality_score": null,
+      "expected_feature_id": "circle_7",
+      "actual_feature_id": null,
+      "quality_metrics": {},
+      "deviations": {},
+      "inspection_notes": [
+        "Geometric comparison not performed due to coordinate system incompatibility"
+      ]
+    },
+    {
+      "feature_id": "circle_8",
+      "inspection_result": "not_determined",
+      "quality_score": null,
+      "expected_feature_id": "circle_8",
+      "actual_feature_id": null,
+      "quality_metrics": {},
+      "deviations": {},
+      "inspection_notes": [
+        "Geometric comparison not performed due to coordinate system incompatibility"
+      ]
+    }
+  ],
+  "configuration_snapshot": {
+    "pass_threshold": 0.85,
+    "review_threshold": 0.7,
+    "matched_feature_weight": 1.0,
+    "missing_feature_penalty": 0.8,
+    "extra_feature_penalty": 0.3,
+    "poor_match_penalty": 0.5,
+    "quality_weights": {
+      "completeness": 0.4,
+      "accuracy": 0.4,
+      "confidence": 0.2
+    }
+  },
+  "processing_notes": [
+    "Expected features extracted: 5 from c-bp.dxf",
+    "Actual features detected: 0 from WhatsApp Image 2026-09-09 at 12.07.42 PM.jpeg",
+    "Expected coordinate system: dxf_mm",
+    "Actual coordinate system: image_pixels_transform_unavailable",
+    "Geometric matching not performed due to coordinate system incompatibility",
+    "Physical quality determination requires valid pixel-to-CAD/mm transformation",
+    "Geometric matching not performed due to coordinate system incompatibility",
+    "Expected: dxf_mm, Actual: image_pixels_transform_unavailable"
+  ],
+  "expected_feature_set_summary": {
+    "total_features": 5,
+    "source_dxf": "C:\\Users\\User\\Desktop\\projects\\features\\PeenyaProjectMSME\\data\\dxf\\c-bp.dxf",
+    "extraction_timestamp": "2026-09-16T22:39:48.615127"
+  },
+  "actual_feature_set_summary": {
+    "total_features": 0,
+    "coordinate_system": "image_pixels_transform_unavailable",
+    "detection_timestamp": "2026-09-16 22:39:51",
+    "average_confidence": 0.0
+  },
+  "matching_summary": {
+    "total_matches": 0,
+    "matching_algorithm": "blocked_coordinate_mismatch",
+    "matching_timestamp": "2026-09-16 22:39:51"
+  },
+  "_metadata": {
+    "serialization_timestamp": "2026-09-16T22:39:51.328159",
+    "serializer_version": "1.0.0",
+    "data_type": "InspectionResult",
+    "encoder_method": "encode_inspection_result"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "source_image": "data\\inputs\\WhatsApp Image 2026-09-09 at 12.07.51 PM.jpeg",
+  "preprocessing_successful": true,
+  "isolation_successful": true,
+  "original_dimensions": [
+    960,
+    1280
+  ],
+  "processed_dimensions": [
+    960,
+    1280
+  ],
+  "scale_factor": 1.0,
+  "roi_offset": [
+    0,
+    0
+  ],
+  "product_area_pixels": 42783,
+  "product_area_fraction": 0.03481689453125,
+  "internal_edge_density": 0.00203857421875,
+  "outer_boundary_density": 0.0008414713541666667,
+  "final_edge_density": 0.0027644856770833335,
+  "texture_suppression_ratio": 0.99796142578125,
+  "processing_steps": [
+    "load_grayscale",
+    "no_resize",
+    "gaussian_blur_noise_reduction",
+    "dual_polarity_otsu_isolation",
+    "connected_component_analysis",
+    "morphological_mask_cleanup",
+    "product_region_extraction",
+    "clahe_contrast_enhancement",
+    "texture_aware_noise_reduction",
+    "morphological_gradient_internal_edges",
+    "texture_suppression_filtering",
+    "canny_outer_boundary_extraction",
+    "weighted_edge_combination",
+    "final_edge_cleanup"
+  ],
+  "configuration": {
+    "max_resolution": 1600,
+    "gradient_threshold": 12,
+    "canny_low": 50,
+    "canny_high": 150,
+    "min_component_area": 200,
+    "border_margin_fraction": 0.01,
+    "blur_kernel": [
+      5,
+      5
+    ],
+    "mask_morph_kernel_size": 9,
+    "mask_morph_close_iters": 3,
+    "mask_morph_open_iters": 2,
+    "clahe_clip_limit": 2.0,
+    "clahe_tile_grid": [
+      8,
+      8
+    ],
+    "internal_edge_max_density": 0.08,
+    "gradient_step_multiplier": 1.5,
+    "gradient_max_retries": 4,
+    "internal_edge_weight": 0.7,
+    "outer_boundary_weight": 0.8,
+    "noise_reduction_kernel": 3,
+    "min_edge_strength": 20,
+    "texture_suppression_threshold": 15
+  }
+}

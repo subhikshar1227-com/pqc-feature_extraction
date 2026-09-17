@@ -24,6 +24,7 @@ import numpy as np
 from pathlib import Path
 
 from cad_image_alignment import align, match_best_template
+from dxf_resolver import resolve_dxf, DXFResolutionError
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -34,8 +35,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-INPUTS_DIR     = Path("inputs")
-BLUEPRINTS_DIR = Path("blueprints")
+INPUTS_DIR     = Path("data/inputs")
+BLUEPRINTS_DIR = Path("data/blueprints")
 OUTPUTS_DIR    = Path("outputs")
 IMAGE_EXTS     = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
@@ -509,6 +510,120 @@ def main() -> None:
 
         print(f"\n   [PASS] Stage 1: Identification")
         print(f"          Matched: '{best.name}'  coverage {best.result.coverage:.1%}")
+
+        # PHASE 0: Resolve blueprint to corresponding DXF file
+        try:
+            dxf_path = resolve_dxf(best.name)
+            print(f"          DXF resolved: {dxf_path.name}")
+            logger.info(f"Blueprint '{best.name}' resolved to DXF: {dxf_path}")
+            
+            # PHASE 1: Extract expected features from DXF
+            try:
+                from feature_extraction import extract_expected_features
+                from feature_extraction.visualization import visualize_expected_features
+                
+                print(f"\n   Stage 2: Expected Feature Extraction")
+                print(f"   Processing DXF: {dxf_path.name}...")
+                
+                expected_features = extract_expected_features(dxf_path)
+                
+                print(f"   [PASS] Stage 2: Expected Feature Extraction")
+                print(f"          Features found: {expected_features.total_feature_count}")
+                print(f"          Circles: {expected_features.circle_count}")
+                print(f"          Through holes: {expected_features.through_hole_count}")
+                print(f"          Average confidence: {expected_features.average_confidence:.3f}")
+                
+                # Generate feature visualization
+                print(f"   Generating expected feature visualization...")
+                viz_path = visualize_expected_features(expected_features, 
+                                                     output_path=out_dir / "expected_features.png")
+                print(f"   [OK] Expected features visualization: {viz_path.name}")
+                
+                # Store complete results for future phases
+                identification_result = {
+                    "identified_blueprint": best.name,
+                    "dxf_path": dxf_path,
+                    "transform_matrix": best.result.transform_matrix,
+                    "alignment_result": best.result,
+                    "coverage": best.result.coverage,
+                    "alignment_score": best.result.alignment_score,
+                    "strategy": best.result.strategy,
+                    "expected_features": expected_features,  # Phase 1 output
+                }
+                
+                # PHASE 2: STEP 1 - Preprocessing Only
+                print(f"\n   Stage 3: Phase 2 Preprocessing")
+                print(f"   Applying geometry-preserving Phase 2 preprocessing...")
+                
+                try:
+                    from feature_inspection.actual.canonical_preprocessor import CanonicalPreprocessor
+                    
+                    # Initialize canonical Phase 2 preprocessor
+                    preprocessor = CanonicalPreprocessor()
+                    
+                    # Apply preprocessing using geometry-preserving algorithms
+                    preprocessing_result = preprocessor.preprocess_image(inp)
+                    
+                    # Create Phase 2 output directory
+                    phase2_output_dir = out_dir.parent / inp.stem / "phase_2"
+                    
+                    # Save preprocessing outputs
+                    saved_files = preprocessor.save_preprocessing_outputs(
+                        result=preprocessing_result,
+                        output_dir=phase2_output_dir
+                    )
+                    
+                    print(f"   [PASS] Stage 3: Phase 2 Preprocessing")
+                    print(f"          Preprocessing: {'SUCCESS' if preprocessing_result.preprocessing_successful else 'FAILED'}")
+                    
+                    if preprocessing_result.preprocessing_successful:
+                        print(f"          Product isolation: {preprocessing_result.product_area_pixels} pixels ({preprocessing_result.product_area_fraction:.1%} of image)")
+                        print(f"          Raw internal edges: {preprocessing_result.raw_internal_edge_density:.3f}")
+                        print(f"          Filtered internal edges: {preprocessing_result.filtered_internal_edge_density:.3f}")
+                        print(f"          Texture reduction: {preprocessing_result.internal_edge_reduction_ratio:.1%}")
+                        print(f"          Outer boundary edges: {preprocessing_result.outer_boundary_density:.3f}")
+                        print(f"          Final edge density: {preprocessing_result.final_edge_density:.3f}")
+                        
+                        if preprocessing_result.border_touching_foreground:
+                            print(f"          ⚠ WARNING: Product mask touches image border")
+                        if preprocessing_result.mask_solidity < 0.7:
+                            print(f"          ⚠ WARNING: Low mask solidity ({preprocessing_result.mask_solidity:.2f})")
+                    else:
+                        print(f"          Error: {preprocessing_result.configuration_snapshot.get('error', 'Unknown preprocessing failure')}")
+                    
+                    print(f"          Phase 2 preprocessing outputs: {phase2_output_dir}")
+                    print(f"          - original_image.png")
+                    print(f"          - product_mask.png") 
+                    print(f"          - mask_overlay.png")
+                    print(f"          - isolated_product.png")
+                    print(f"          - internal_geometry_edges.png")
+                    print(f"          - outer_boundary_edges.png")
+                    print(f"          - final_preprocessed_edges.png")
+                    print(f"          - preprocessing_montage.png")
+                    print(f"          - preprocessing_metadata.json")
+                    
+                    # STOP HERE - NO FEATURE DETECTION YET
+                    print(f"   [INFO] Phase 2 Step 1 Complete - Ready for Step 2 (Feature Detection)")
+                    
+                except Exception as e:
+                    print(f"\n   [FAIL] Stage 3: Phase 2 Preprocessing")
+                    print(f"          Error: {e}")
+                    logger.error(f"Phase 2 preprocessing failed for {inp.name}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Continue with remaining images even if Phase 2 fails
+                
+            except Exception as e:
+                print(f"\n   [FAIL] Stage 2: Expected Feature Extraction")
+                print(f"          Error: {e}")
+                logger.error(f"Failed to extract expected features from {dxf_path}: {e}")
+                # Continue with alignment outputs even if feature extraction fails
+                
+        except DXFResolutionError as e:
+            print(f"\n   [FAIL] DXF Resolution")
+            print(f"          Error: {e}")
+            logger.error(f"Failed to resolve DXF for blueprint '{best.name}': {e}")
+            continue
 
         # Save outputs
         print(f"\n   Saving alignment outputs...")
