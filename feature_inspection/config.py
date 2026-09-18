@@ -1,9 +1,13 @@
 """
-Phase 2: Feature Inspection Configuration
+Feature Inspection Configuration
 
-Centralized configuration for actual feature detection, matching,
-and quality inspection parameters.
+Centralized configuration for Phase 2A preprocessing parameters.
+All tunable preprocessing parameters are defined here to avoid hardcoding.
 """
+
+# =============================================================================
+# Phase 2A Preprocessing Configuration
+# =============================================================================
 
 # Edge combination weights for final representation
 PREPROCESSING_INTERNAL_EDGE_COMBINATION_WEIGHT = 0.7     # Weight for internal geometry edges
@@ -51,24 +55,20 @@ PREPROCESSING_TEXTURE_STRONG_GRADIENT_MULTIPLIER = 1.5  # Multiplier for strong 
 # Final edge representation parameters
 PREPROCESSING_FINAL_EDGE_CLEANUP_THRESHOLD = 50         # Threshold for final weak edge removal
 
-# Additional algorithm parameters - CORRECTED to eliminate hardcoded values
-PREPROCESSING_BACKGROUND_BORDER_FRACTION = 0.05         # Fraction of image size for border region (was hardcoded 0.05)
-PREPROCESSING_BACKGROUND_BORDER_MIN_PIXELS = 5          # Minimum border width in pixels (was hardcoded 5)
-PREPROCESSING_ADAPTIVE_THRESHOLD_BLOCK_SIZE = 15        # Block size for adaptive thresholding (was hardcoded 15)
-PREPROCESSING_ADAPTIVE_THRESHOLD_C = 5                  # Constant subtracted from mean (was hardcoded 5)
-PREPROCESSING_GRADIENT_SOBEL_KERNEL_SIZE = 3            # Sobel kernel size for gradient (was hardcoded 3)
-PREPROCESSING_HOLE_AREA_FRACTION_THRESHOLD = 0.1        # Fraction for internal hole detection (was hardcoded 0.1)
-PREPROCESSING_SIGNIFICANT_REGION_AREA_FRACTION = 0.1    # Fraction for significant region detection (was hardcoded 0.1)
-PREPROCESSING_STRUCTURE_AREA_FRACTION_THRESHOLD = 0.05  # Fraction for structure preservation (was hardcoded 0.05)
-PREPROCESSING_CONTOUR_PERIMETER_THRESHOLD = 20          # Minimum perimeter for contour preservation (was hardcoded 20)
-PREPROCESSING_CONTOUR_CIRCULARITY_THRESHOLD = 0.3       # Minimum circularity for circular features (was hardcoded 0.3)
+# Additional algorithm parameters
+PREPROCESSING_BACKGROUND_BORDER_FRACTION = 0.05         # Fraction of image size for border region
+PREPROCESSING_BACKGROUND_BORDER_MIN_PIXELS = 5          # Minimum border width in pixels
+PREPROCESSING_ADAPTIVE_THRESHOLD_BLOCK_SIZE = 15        # Block size for adaptive thresholding
+PREPROCESSING_ADAPTIVE_THRESHOLD_C = 5                  # Constant subtracted from mean
+PREPROCESSING_GRADIENT_SOBEL_KERNEL_SIZE = 3            # Sobel kernel size for gradient
+PREPROCESSING_HOLE_AREA_FRACTION_THRESHOLD = 0.1        # Fraction for internal hole detection
+PREPROCESSING_SIGNIFICANT_REGION_AREA_FRACTION = 0.1    # Fraction for significant region detection
+PREPROCESSING_STRUCTURE_AREA_FRACTION_THRESHOLD = 0.05  # Fraction for structure preservation
+PREPROCESSING_CONTOUR_PERIMETER_THRESHOLD = 20          # Minimum perimeter for contour preservation
+PREPROCESSING_CONTOUR_CIRCULARITY_THRESHOLD = 0.3       # Minimum circularity for circular features
 
-# =============================================================================
-# Image Processing Configuration
-# =============================================================================
-
-# Phase 2 Preprocessing Configuration
-PREPROCESSING_MAX_RESOLUTION = 1600         # Maximum long edge dimension (matches quick_test.py MAX_LONG_EDGE)
+# Image processing parameters
+PREPROCESSING_MAX_RESOLUTION = 1600         # Maximum long edge dimension
 PREPROCESSING_GAUSSIAN_BLUR_KERNEL = 5      # Gaussian blur kernel size for noise reduction
 
 # Product isolation thresholds  
@@ -101,189 +101,148 @@ PREPROCESSING_EDGE_CLOSE_KERNEL_SIZE = 2          # Kernel size for edge closing
 PREPROCESSING_COMPONENT_AREA_WEIGHT = 0.95        # Weight for area in component scoring
 PREPROCESSING_COMPONENT_CENTRALITY_WEIGHT = 0.05  # Weight for centrality in component scoring
 
-# Image preprocessing (legacy - to be consolidated)
-IMAGE_MAX_DIMENSION = 1024               # Maximum width/height for processing
-IMAGE_GAUSSIAN_BLUR_KERNEL = 5          # Kernel size for noise reduction
-IMAGE_BILATERAL_FILTER_D = 9            # Diameter for bilateral filtering
-IMAGE_BILATERAL_FILTER_SIGMA_COLOR = 75  # Color sigma for bilateral filter
-IMAGE_BILATERAL_FILTER_SIGMA_SPACE = 75  # Space sigma for bilateral filter
-
-# Edge detection  
-EDGE_DETECTION_LOW_THRESHOLD = 50        # Lower Canny threshold
-EDGE_DETECTION_HIGH_THRESHOLD = 150      # Upper Canny threshold
-EDGE_DETECTION_APERTURE_SIZE = 3         # Sobel aperture size
-EDGE_DETECTION_L2_GRADIENT = True        # Use L2 gradient norm
-
-# =============================================================================
-# Actual Feature Detection Configuration  
-# =============================================================================
-
-# Contour detection
-CONTOUR_MIN_AREA = 100                   # Minimum contour area (pixels²)
-CONTOUR_MAX_AREA = 50000                 # Maximum contour area (pixels²)
-CONTOUR_APPROX_EPSILON_FACTOR = 0.02     # Approximation epsilon as fraction of perimeter
-
-# Circle detection
-CIRCLE_HOUGH_DP = 2                      # Inverse ratio of accumulator resolution (increased for more selectivity)
-CIRCLE_HOUGH_MIN_DIST_FACTOR = 2.0       # Minimum distance between circle centers as fraction of radius (increased)
-CIRCLE_HOUGH_PARAM1 = 100                # Upper Canny threshold for edge detection (increased)
-CIRCLE_HOUGH_PARAM2 = 50                 # Accumulator threshold for center detection (increased for selectivity)
-CIRCLE_MIN_RADIUS_PIXELS = 15            # Minimum circle radius (pixels) - increased from 10
-CIRCLE_MAX_RADIUS_PIXELS = 150           # Maximum circle radius (pixels) - decreased from 200
-
-# Circle validation
-CIRCLE_CONTOUR_MATCH_THRESHOLD = 0.8     # Minimum match score for circle-contour correspondence
-CIRCLE_ROUNDNESS_THRESHOLD = 0.8         # Minimum roundness for circle classification (increased)
-CIRCLE_AREA_RATIO_THRESHOLD = 0.8        # Minimum area ratio (contour area / circle area) (increased)
-
-# Through hole detection
-HOLE_MIN_ASPECT_RATIO = 0.8              # Minimum width/height ratio for holes
-HOLE_MAX_ASPECT_RATIO = 1.2              # Maximum width/height ratio for holes  
-HOLE_MIN_SOLIDITY = 0.8                  # Minimum solidity (contour area / convex hull area)
-HOLE_DARKNESS_THRESHOLD = 80             # Maximum average brightness for hole interior (absolute)
-HOLE_LOCAL_CONTRAST_THRESHOLD = 20       # Minimum brightness difference (interior vs annulus)
-HOLE_ANNULUS_WIDTH_PIXELS = 5            # Width of surrounding annulus for contrast comparison
-HOLE_MIN_CONTRAST_RATIO = 0.7            # Minimum ratio (hole_brightness / annulus_brightness)
-
-# Rectangular hole detection
-RECT_HOLE_MIN_VERTICES = 4               # Minimum vertices for rectangular approximation
-RECT_HOLE_MAX_VERTICES = 6               # Maximum vertices for rectangular approximation
-RECT_HOLE_CORNER_ANGLE_TOLERANCE = 15    # Tolerance for right angles (degrees)
-RECT_HOLE_MIN_WIDTH_PIXELS = 15          # Minimum rectangular hole width (pixels)
-RECT_HOLE_MIN_HEIGHT_PIXELS = 15         # Minimum rectangular hole height (pixels)
-
-# Feature confidence calculation
-CONFIDENCE_BASE_SCORE = 0.3              # Base confidence for detected features  
-CONFIDENCE_ROUNDNESS_WEIGHT = 0.25       # Weight of roundness in confidence
-CONFIDENCE_AREA_RATIO_WEIGHT = 0.20      # Weight of area ratio in confidence
-CONFIDENCE_EDGE_STRENGTH_WEIGHT = 0.25   # Weight of edge strength in confidence
-CONFIDENCE_CONTOUR_QUALITY_WEIGHT = 0.20 # Weight of contour quality in confidence
-CONFIDENCE_LOCAL_CONTRAST_WEIGHT = 0.10  # Weight of local contrast in confidence
-
-# Duplicate removal
-DUPLICATE_REMOVAL_DISTANCE_THRESHOLD = 30.0  # Distance threshold for duplicate detection (pixels) - increased
-DUPLICATE_REMOVAL_SIZE_TOLERANCE = 0.2       # Relative size tolerance for duplicates - decreased for stricter removal
-
-# =============================================================================
-# Coordinate Transformation Configuration
-# =============================================================================
-
-# Transform validation
-TRANSFORM_VALIDATION_TOLERANCE = 1.0     # Tolerance for transform validation (pixels)
-COORDINATE_PRECISION_DECIMALS = 3        # Decimal places for coordinate rounding
-
-# =============================================================================
-# Feature Matching Configuration
-# =============================================================================
-
-# Geometric matching tolerances
-MATCH_CENTER_TOLERANCE_MM = 2.0          # Center position tolerance (mm in DXF space)
-MATCH_RADIUS_TOLERANCE_ABSOLUTE_MM = 1.0 # Absolute radius tolerance (mm)
-MATCH_RADIUS_TOLERANCE_RELATIVE = 0.15   # Relative radius tolerance (15%)
-
-# Matching algorithm
-MATCH_ASSIGNMENT_METHOD = "hungarian"     # Assignment algorithm: "greedy" or "hungarian"
-MATCH_MIN_CONFIDENCE = 0.6               # Minimum confidence for valid matches
-MATCH_TYPE_COMPATIBILITY_BONUS = 0.2     # Bonus for exact feature type match
-
-# Distance weighting
-MATCH_DISTANCE_WEIGHT = 0.5              # Weight of center distance in match score
-MATCH_SIZE_WEIGHT = 0.3                  # Weight of size similarity in match score  
-MATCH_TYPE_WEIGHT = 0.2                  # Weight of type compatibility in match score
-
-# =============================================================================
-# Feature Comparison Configuration
-# =============================================================================
-
-# Geometric deviation thresholds
-COMPARISON_CENTER_TOLERANCE_MM = 1.5     # Acceptable center deviation (mm)
-COMPARISON_RADIUS_TOLERANCE_MM = 0.8     # Acceptable radius deviation (mm)
-COMPARISON_RADIUS_TOLERANCE_RELATIVE = 0.1  # Acceptable relative radius deviation (10%)
-
-# Comparison scoring
-COMPARISON_EXCELLENT_THRESHOLD = 0.95    # Score threshold for excellent match
-COMPARISON_GOOD_THRESHOLD = 0.85         # Score threshold for good match
-COMPARISON_ACCEPTABLE_THRESHOLD = 0.7    # Score threshold for acceptable match
-
-# =============================================================================
-# Quality Inspection Configuration
-# =============================================================================
-
-# Feature scoring weights
-INSPECTION_MATCHED_FEATURE_WEIGHT = 1.0     # Weight for successfully matched features
-INSPECTION_MISSING_FEATURE_PENALTY = 0.8    # Penalty for each missing expected feature
-INSPECTION_EXTRA_FEATURE_PENALTY = 0.3      # Penalty for each unexpected actual feature
-INSPECTION_POOR_MATCH_PENALTY = 0.5         # Penalty for poorly matched features
-
-# Inspection decision thresholds
-INSPECTION_PASS_THRESHOLD = 0.85         # Minimum score for PASS
-INSPECTION_REVIEW_THRESHOLD = 0.7        # Minimum score for REVIEW (vs FAIL)
-
-# Quality metrics
-QUALITY_COMPLETENESS_WEIGHT = 0.4        # Weight of feature completeness in quality score
-QUALITY_ACCURACY_WEIGHT = 0.4           # Weight of geometric accuracy in quality score  
-QUALITY_CONFIDENCE_WEIGHT = 0.2         # Weight of detection confidence in quality score
-
-# Missing feature analysis
-MISSING_CRITICAL_FEATURE_PENALTY = 1.0   # Penalty for missing critical features
-MISSING_STANDARD_FEATURE_PENALTY = 0.6   # Penalty for missing standard features
-MISSING_MINOR_FEATURE_PENALTY = 0.3      # Penalty for missing minor features
-
-# Extra feature analysis  
-EXTRA_MAJOR_FEATURE_PENALTY = 0.5       # Penalty for major unexpected features
-EXTRA_MINOR_FEATURE_PENALTY = 0.2       # Penalty for minor unexpected features
-
-# =============================================================================
-# Feature Classification Thresholds
-# =============================================================================
-
-# Feature importance classification by size (mm in DXF space)
-FEATURE_CRITICAL_MIN_RADIUS = 10.0      # Minimum radius for critical features
-FEATURE_MAJOR_MIN_RADIUS = 5.0          # Minimum radius for major features
-FEATURE_MINOR_MAX_RADIUS = 2.0          # Maximum radius for minor features
-
-# Feature type priorities for inspection
-FEATURE_TYPE_PRIORITIES = {
-    "THROUGH_HOLE": 1.0,                 # Highest priority
-    "CIRCLE": 0.8,                       # High priority
-    "RECTANGULAR_HOLE": 1.0,             # Highest priority
-    "SQUARE_HOLE": 1.0                   # Highest priority
-}
-
-# =============================================================================
-# Visualization Configuration
-# =============================================================================
-
-# Display colors (BGR format for OpenCV)
-COLOR_EXPECTED_FEATURE = (0, 255, 0)    # Green for expected features
-COLOR_ACTUAL_FEATURE = (255, 0, 0)      # Blue for detected actual features
-COLOR_MATCHED_FEATURE = (0, 255, 255)   # Yellow for successfully matched
-COLOR_MISSING_FEATURE = (0, 0, 255)     # Red for missing expected features
-COLOR_EXTRA_FEATURE = (255, 0, 255)     # Magenta for unexpected actual features
-
-# Display parameters
-VISUALIZATION_CIRCLE_THICKNESS = 2      # Line thickness for circles
-VISUALIZATION_TEXT_FONT_SCALE = 0.5     # Font scale for labels
-VISUALIZATION_TEXT_THICKNESS = 1        # Text line thickness
-VISUALIZATION_MARKER_SIZE = 5           # Size of center markers
-
-# =============================================================================
-# Debug and Logging Configuration
-# =============================================================================
-
-# Debug output control
-DEBUG_SAVE_INTERMEDIATE_IMAGES = False   # Save preprocessing steps
-DEBUG_SAVE_DETECTION_RESULTS = True     # Save detection visualization
-DEBUG_VERBOSE_MATCHING = False          # Detailed matching logs
-
-# Output paths
-DEBUG_OUTPUT_SUFFIX = "_debug"          # Suffix for debug files
-INSPECTION_OUTPUT_SUFFIX = "_inspection" # Suffix for inspection results
-
-# =============================================================================
-# Final Micro-Fix Parameters - Removing Last Hard-Coded Values
-# =============================================================================
-
 # Multi-scale texture suppression parameters
 PREPROCESSING_TEXTURE_MULTI_SCALE_LEVELS = [1, 2, 3]  # Different blur levels for scale consistency
 PREPROCESSING_TEXTURE_FINAL_CLEANUP_ITERATIONS = 1     # Morphological open iterations for noise removal
+
+
+# =============================================================================
+# Phase 2B Actual Feature Extraction Configuration
+# =============================================================================
+
+# Circle detection parameters
+CIRCLE_MIN_RADIUS = 5                      # Minimum circle radius in pixels
+CIRCLE_MAX_RADIUS = 300                    # Maximum circle radius in pixels  
+CIRCLE_MIN_AREA = 50                       # Minimum circle area in pixels
+CIRCLE_MAX_AREA = 100000                   # Maximum circle area in pixels
+CIRCLE_CIRCULARITY_THRESHOLD = 0.3         # Minimum circularity for circle candidates
+CIRCLE_CONTOUR_APPROX_EPSILON = 0.02       # Contour approximation epsilon for circles
+CIRCLE_HOUGH_ACCUMULATOR_THRESHOLD = 20    # Hough circle accumulator threshold
+CIRCLE_MIN_CENTER_DISTANCE = 10            # Minimum distance between circle centers
+CIRCLE_EDGE_SUPPORT_THRESHOLD = 0.6        # Minimum edge support ratio for circles
+
+# Rectangle/square detection parameters  
+RECTANGLE_MIN_AREA = 100                   # Minimum rectangle area in pixels
+RECTANGLE_MAX_AREA = 50000                 # Maximum rectangle area in pixels
+RECTANGLE_MIN_SIDE_LENGTH = 10             # Minimum rectangle side length in pixels
+RECTANGLE_CONTOUR_APPROX_EPSILON = 0.02    # Contour approximation epsilon for rectangles
+RECTANGLE_ASPECT_RATIO_TOLERANCE = 0.3     # Tolerance for rectangle aspect ratio validation
+RECTANGLE_ANGLE_TOLERANCE = 15             # Angle tolerance for rectangle corners (degrees)
+RECTANGLE_SIDE_RATIO_TOLERANCE = 0.2       # Tolerance for opposite side length ratios
+
+# General contour extraction parameters
+CONTOUR_MIN_AREA = 25                      # Minimum contour area for preservation
+CONTOUR_MAX_AREA = 200000                  # Maximum contour area to consider
+CONTOUR_MIN_PERIMETER = 20                 # Minimum contour perimeter
+CONTOUR_APPROX_EPSILON = 0.01              # General contour approximation epsilon
+CONTOUR_CONVEXITY_THRESHOLD = 0.7          # Minimum convexity for contour validation
+CONTOUR_SOLIDITY_THRESHOLD = 0.5           # Minimum solidity for contour validation
+
+# Candidate validation parameters
+FEATURE_MIN_CONFIDENCE = 0.3               # Minimum confidence for feature acceptance
+FEATURE_MIN_EDGE_SUPPORT = 0.4             # Minimum edge support for feature validation
+FEATURE_PRODUCT_MASK_OVERLAP_THRESHOLD = 0.7  # Required overlap with product mask
+FEATURE_MAX_BORDER_DISTANCE = 5            # Maximum distance from image border for rejection
+
+# Duplicate suppression parameters
+DUPLICATE_CENTER_DISTANCE_THRESHOLD = 15   # Maximum center distance for duplicate detection
+DUPLICATE_SIZE_RATIO_THRESHOLD = 0.3       # Maximum size ratio difference for duplicates
+DUPLICATE_OVERLAP_THRESHOLD = 0.5          # Minimum overlap ratio for duplicate detection
+DUPLICATE_CONFIDENCE_PREFERENCE = True     # Prefer higher confidence candidates in duplicate resolution
+
+# Evidence weighting parameters
+EDGE_EVIDENCE_WEIGHT = 0.4                 # Weight for edge-based evidence
+CONTOUR_EVIDENCE_WEIGHT = 0.3              # Weight for contour-based evidence
+INTENSITY_EVIDENCE_WEIGHT = 0.2            # Weight for intensity-based evidence
+GEOMETRY_EVIDENCE_WEIGHT = 0.1             # Weight for geometric consistency evidence
+
+# Feature extraction processing parameters
+MAX_CANDIDATES_PER_TYPE = 50               # Maximum candidates to consider per feature type
+CANDIDATE_REFINEMENT_ITERATIONS = 3        # Iterations for candidate refinement
+MULTI_SCALE_DETECTION_LEVELS = [1.0, 0.8, 1.2]  # Scale levels for multi-scale detection
+
+# Hough circle detection parameters
+HOUGH_CIRCLE_PARAM1 = 50                   # Upper Canny threshold for Hough circles
+HOUGH_CIRCLE_PARAM2_MULTIPLIER = 1.0       # Multiplier for param2 (uses CIRCLE_HOUGH_ACCUMULATOR_THRESHOLD)
+HOUGH_CIRCLE_BLUR_KERNEL_SIZE = 5          # Gaussian blur kernel size for Hough preprocessing
+HOUGH_CIRCLE_DP = 1                        # Inverse ratio of accumulator resolution
+HOUGH_CIRCLE_MIN_DIST_MULTIPLIER = 1.0     # Multiplier for min distance (uses CIRCLE_MIN_CENTER_DISTANCE)
+HOUGH_CIRCLE_CONTOUR_SAMPLING_POINTS = 64  # Number of points to sample for synthetic contour
+
+# Edge support validation parameters
+EDGE_SUPPORT_SAMPLING_POINTS = 64          # Number of points to sample around circle perimeter
+EDGE_SUPPORT_NEIGHBORHOOD_SIZE = 3         # Neighborhood size for edge validation
+CONTOUR_EDGE_SUPPORT_INTERPOLATION_THRESHOLD = 2  # Distance threshold for contour point interpolation
+
+# Confidence calculation parameters
+HOUGH_CONFIDENCE_RADIUS_WEIGHT = 0.3       # Weight for radius score in Hough confidence
+HOUGH_CONFIDENCE_EDGE_WEIGHT = 0.7         # Weight for edge support in Hough confidence
+CONTOUR_INTENSITY_EVIDENCE_WEIGHT = 0.2    # Weight for intensity evidence in contour confidence
+
+# Cross-type duplicate suppression parameters
+CROSS_TYPE_DUPLICATE_ENABLED = True        # Enable cross-type duplicate suppression
+CROSS_TYPE_CENTER_THRESHOLD = 12           # Center distance threshold for cross-type duplicates
+CROSS_TYPE_SIZE_THRESHOLD = 0.4            # Size ratio threshold for cross-type duplicates
+CROSS_TYPE_OVERLAP_THRESHOLD = 0.4         # Overlap threshold for cross-type duplicates
+
+# Contour hierarchy parameters
+CONTOUR_HIERARCHY_FILTERING_ENABLED = True # Enable contour hierarchy filtering
+CONTOUR_MIN_AREA_RATIO = 0.1               # Minimum area ratio vs parent for nested contours
+CONTOUR_MAX_ENCLOSING_RATIO = 0.8          # Maximum area ratio vs product mask for outer contours
+
+# General contour validation enhancement
+CONTOUR_MULTIPLE_PROPERTY_VALIDATION = True # Enable multiple property validation for contours
+CONTOUR_MIN_SOLIDITY_ENHANCED = 0.6        # Enhanced minimum solidity threshold
+CONTOUR_MIN_EXTENT = 0.1                   # Minimum extent (area/bounding_box_area)
+CONTOUR_MAX_ASPECT_RATIO = 10.0            # Maximum aspect ratio for contour validation
+
+# Enhanced Hough circle validation parameters
+HOUGH_GEOMETRIC_EVIDENCE_REQUIRED = True   # Require geometric evidence validation for Hough circles
+HOUGH_EDGE_SUPPORT_MULTIPLIER = 1.1        # Stricter edge support for Hough (vs lenient 0.8)
+HOUGH_RADIUS_ANOMALY_DETECTION = True      # Enable radius anomaly detection
+HOUGH_MAX_RADIUS_PERCENTILE = 0.95         # Maximum radius as percentile of image diagonal
+HOUGH_AREA_POPULATION_THRESHOLD = 3.0      # Maximum area as multiple of median detected area
+
+# Enhanced duplicate suppression parameters  
+ENHANCED_DUPLICATE_SUPPRESSION = True      # Enable enhanced duplicate detection
+SAME_TYPE_CENTER_DISTANCE_STRICT = 8       # Stricter center distance for same-type duplicates
+HOUGH_CLUSTER_CONSOLIDATION = True         # Enable Hough cluster consolidation
+HOUGH_CLUSTER_RADIUS_TOLERANCE = 0.2       # Radius similarity tolerance for cluster consolidation
+
+# Contour significance validation parameters
+CONTOUR_SIGNIFICANCE_VALIDATION = True     # Enable geometric significance validation
+CONTOUR_MIN_AREA_ENHANCED = 100            # Enhanced minimum area for significance
+CONTOUR_MAX_AREA_IMAGE_FRACTION = 0.3      # Maximum contour area as fraction of image
+CONTOUR_GEOMETRIC_STABILITY_REQUIRED = True # Require geometric stability validation
+
+# Confidence calculation enhancements
+CONFIDENCE_GEOMETRIC_VALIDATION = True     # Require actual geometric validation for confidence
+HOUGH_CONFIDENCE_GEOMETRIC_WEIGHT = 0.4    # Weight for geometric validation in Hough confidence
+CONFIDENCE_INTENSITY_VALIDATION_REQUIRED = True # Require intensity validation before final confidence
+
+# Enhanced Hough circle image evidence validation
+HOUGH_ANGULAR_COVERAGE_REQUIRED = True     # Require angular coverage validation for Hough circles
+HOUGH_MIN_ANGULAR_COVERAGE = 0.55          # Minimum fraction of circumference with edge support
+HOUGH_ANGULAR_SECTORS = 16                 # Number of angular sectors for coverage analysis
+HOUGH_MIN_SECTOR_COVERAGE = 0.5            # Minimum fraction of sectors with edge support
+HOUGH_EDGE_CONTINUITY_REQUIRED = True      # Require edge continuity validation
+HOUGH_MAX_EDGE_GAP_RATIO = 0.45            # Maximum gap ratio in edge coverage
+HOUGH_RADIAL_CONSISTENCY_REQUIRED = True   # Require radial consistency validation
+HOUGH_RADIAL_SAMPLES = 8                   # Number of radial samples for consistency check
+HOUGH_MIN_RADIAL_AGREEMENT = 0.5           # Minimum radial consistency score
+HOUGH_RADIAL_TOLERANCE_PIXELS = 3          # Allowed distance from proposed circumference
+HOUGH_RADIAL_SEARCH_STEP = 1               # Sampling step within the radial tolerance band
+
+# Multi-method agreement parameters
+HOUGH_CONTOUR_AGREEMENT_BONUS = 0.2        # Confidence bonus for Hough+contour agreement  
+HOUGH_ONLY_PENALTY = 0.3                   # Confidence penalty for Hough-only detections (increased)
+HOUGH_TEXTURE_DISCRIMINATION = True        # Enable texture vs feature discrimination
+HOUGH_MIN_LOCAL_CONTRAST = 6               # Minimum local contrast for non-texture features (relaxed)
+
+# Advanced cluster consolidation parameters
+HOUGH_CLUSTER_CONSOLIDATION_ENHANCED = True # Enable enhanced cluster consolidation
+HOUGH_SCALE_AWARE_DISTANCE = True          # Use scale-aware distance for clustering
+HOUGH_CLUSTER_RADIUS_FACTOR = 0.4          # Cluster distance as factor of larger radius (tighter from 0.5)
+HOUGH_CONCENTRIC_DETECTION = True          # Enable concentric circle detection
+HOUGH_CONCENTRIC_RADIUS_TOLERANCE = 0.15   # Tolerance for concentric circle detection
+HOUGH_EVIDENCE_BASED_CONSOLIDATION = True  # Use evidence quality for cluster consolidation

@@ -1,45 +1,31 @@
 """
 Phase 2: Feature Inspection Pipeline
 
-Implements actual feature detection, expected-to-actual matching,
-and quality inspection for product manufacturing verification.
+Now includes Phase 2A preprocessing and Phase 2B actual feature extraction.
+
+Downstream matching, comparison, and inspection are not yet implemented.
 """
 
-from .models.actual_feature import ActualFeature, ActualFeatureSet
-from .models.feature_match import FeatureMatch, FeatureMatchSet
-from .models.inspection_result import InspectionResult, InspectionStatus
-from .models.coordinate_transform import CoordinateTransform
-from .pipeline.orchestrator import inspect_product_quality, inspect_product_with_phase1_integration
-from .pipeline.coordinate_pipeline import CoordinateTransformationPipeline
-from .actual.detector import ActualFeatureDetector
-from .matching.matcher import FeatureMatcher
-from .inspection.inspector import QualityInspector
-from .output.persistence import OutputPersistence
-from .output.visualizer import ActualFeatureVisualizer
+from .preprocessing import CanonicalPreprocessor, PreprocessingResult
+from .actual import (
+    ActualFeatureExtractor,
+    ActualFeature,
+    ActualFeatureType,
+    ActualFeatureExtractionResult,
+    extract_actual_features
+)
 
-__version__ = "2.0.0"
+__version__ = "2.0.0-preprocessing-and-extraction"
 
 __all__ = [
-    # Data models
-    "ActualFeature",
-    "ActualFeatureSet", 
-    "FeatureMatch",
-    "FeatureMatchSet",
-    "InspectionResult",
-    "InspectionStatus",
-    "CoordinateTransform",
+    # Phase 2A: Canonical preprocessing
+    "CanonicalPreprocessor",
+    "PreprocessingResult",
     
-    # Main pipeline
-    "inspect_product_quality",
-    "inspect_product_with_phase1_integration",
-    
-    # Core components
-    "ActualFeatureDetector",
-    "FeatureMatcher",
-    "QualityInspector",
-    "CoordinateTransformationPipeline",
-    
-    # Output handling
-    "OutputPersistence",
-    "ActualFeatureVisualizer"
+    # Phase 2B: Actual feature extraction
+    "ActualFeatureExtractor",
+    "ActualFeature", 
+    "ActualFeatureType",
+    "ActualFeatureExtractionResult",
+    "extract_actual_features"
 ]

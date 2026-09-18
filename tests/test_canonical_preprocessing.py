@@ -11,7 +11,7 @@ from pathlib import Path
 import tempfile
 import json
 
-from feature_inspection.actual.canonical_preprocessor import CanonicalPreprocessor, PreprocessingResult
+from feature_inspection.preprocessing.canonical_preprocessor import CanonicalPreprocessor, PreprocessingResult
 
 
 class TestCanonicalPreprocessor:

@@ -17,27 +17,45 @@ htmlcov/
 .vscode/
 .idea/
 
-# Ignore all images by default
+# Generated outputs - all runtime artifacts
+outputs/
+
+# Ignore generated images by default
 *.png
 *.jpg
 *.jpeg
 
-# ✅ Allow ONLY demo images
-!cad.png
-!real.png
+# ✅ Allow ONLY required data images
+!data/blueprints/*.png
+!data/blueprints/*.jpg
+!data/blueprints/*.jpeg
+!data/inputs/*.png
+!data/inputs/*.jpg
+!data/inputs/*.jpeg
 
-# (Optional) allow README images folder
-!README_images/
+# Allow documentation images if they exist
+!docs/**/*.png
 !README_images/*.png
 
-# Ignore debug/test images
+# Ignore debug/test images anywhere
 debug_*.png
 test_*.png
 *_overlay.png
 *_aligned.png
 *_comparison.png
 *_result.png
+*_validation.png
+*_montage.png
 
 # Ignore temp files
 *.tmp
 *.temp
+
+# Ignore generated JSON outputs
+*_result.json
+*_report.json
+*_metadata.json
+actual_features.json
+matching_result.json
+inspection_result.json
+coordinate_transformation.json

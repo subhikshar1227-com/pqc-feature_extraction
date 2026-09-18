@@ -20,7 +20,7 @@ import sys
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from feature_inspection.actual.canonical_preprocessor import CanonicalPreprocessor
+from feature_inspection.preprocessing.canonical_preprocessor import CanonicalPreprocessor
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')

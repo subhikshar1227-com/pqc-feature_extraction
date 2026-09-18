@@ -362,9 +362,6 @@ CONFIDENCE_BIN_HIGH_MAX = 0.8                       # Maximum for high confidenc
 PERCENTILE_75_FACTOR = 0.75                         # 75th percentile factor
 PERCENTILE_90_FACTOR = 0.9                          # 90th percentile factor
 
-# Geometry reconstruction legacy threshold (for geometry_reconstruction_old.py)
-LEGACY_RECONSTRUCTION_CONFIDENCE_THRESHOLD = 0.5     # Legacy confidence threshold
-
 # =============================================================================
 # Additional Algorithmic Parameters Found in Forensic Audit
 # =============================================================================

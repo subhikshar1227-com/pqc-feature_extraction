@@ -1,13 +1,29 @@
 """
-Actual Feature Detection
+Actual Feature Extraction Module for Phase 2B
 
-Implements detection of geometric features in real product images.
+This module provides functionality for detecting and extracting geometric features
+from preprocessed product images using image evidence only.
+
+CRITICAL: This module does NOT use expected features for detection.
+All feature detection is based purely on image evidence from preprocessing results.
 """
 
-from .detector import ActualFeatureDetector
-from .canonical_preprocessor import CanonicalPreprocessor
+from .feature_models import (
+    ActualFeature,
+    ActualFeatureType, 
+    GeometricProperties,
+    EvidenceMetrics,
+    ActualFeatureExtractionResult
+)
+
+from .actual_feature_extractor import ActualFeatureExtractor, extract_actual_features
 
 __all__ = [
-    "ActualFeatureDetector", 
-    "CanonicalPreprocessor"
+    'ActualFeature',
+    'ActualFeatureType',
+    'GeometricProperties', 
+    'EvidenceMetrics',
+    'ActualFeatureExtractionResult',
+    'ActualFeatureExtractor',
+    'extract_actual_features'
 ]

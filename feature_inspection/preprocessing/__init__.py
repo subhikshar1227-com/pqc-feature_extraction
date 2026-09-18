@@ -1,10 +1,9 @@
 """
-Preprocessing module for Phase 2 feature detection.
+Phase 2 Preprocessing Module
 
-Provides reusable preprocessing components extracted from the proven 
-Phase 1 preprocessing algorithms.
+Contains the canonical Phase 2 preprocessing implementation.
 """
 
-from .product_isolation import ProductIsolationPreprocessor
+from .canonical_preprocessor import CanonicalPreprocessor, PreprocessingResult
 
-__all__ = ['ProductIsolationPreprocessor']
+__all__ = ['CanonicalPreprocessor', 'PreprocessingResult']
