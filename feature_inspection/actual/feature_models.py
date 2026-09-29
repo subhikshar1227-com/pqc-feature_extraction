@@ -63,6 +63,17 @@ class EvidenceMetrics:
     is_border_feature: bool = False      # Feature touches image border
     is_partial_feature: bool = False     # Feature appears partially occluded
     has_noise_artifacts: bool = False    # Feature may contain noise artifacts
+    
+    # Detailed geometric evidence (primarily for Hough circle candidates)
+    angular_coverage: float = 0.0        # Fraction of circumference with edge support
+    sector_coverage: float = 0.0         # Fraction of angular sectors with support
+    angular_uniformity: float = 0.0      # Uniformity of support distribution around circle
+    max_gap_ratio: float = 1.0           # Largest continuous gap as fraction of circumference
+    radial_consistency: float = 0.0      # Consistency of edge distances from predicted radius
+    radial_error_median: float = 0.0     # Median radial error in pixels
+    radial_error_p95: float = 0.0        # 95th percentile radial error in pixels
+    local_contrast: float = 0.0          # Local contrast around feature boundary
+    gradient_orientation_consistency: float = 0.0  # Consistency of gradient directions with circle
 
 
 @dataclass  
@@ -200,6 +211,10 @@ class ActualFeatureExtractionResult:
     coordinate_system: str = "processed" # Coordinate system of detected features
     scale_factor: float = 1.0           # Scale factor to original coordinates
     roi_offset: Tuple[int, int] = (0, 0) # ROI offset if applicable
+    candidates_dropped_by_generation_cap: int = 0  # Candidates dropped by the per-type
+                                                    # generation safety cap before validation.
+                                                    # Non-zero means MAX_CANDIDATES_PER_TYPE
+                                                    # may be too low for this image.
     
     def get_features_by_type(self, feature_type: ActualFeatureType) -> List[ActualFeature]:
         """Get all features of a specific type."""

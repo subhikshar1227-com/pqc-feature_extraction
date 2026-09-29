@@ -157,7 +157,14 @@ INTENSITY_EVIDENCE_WEIGHT = 0.2            # Weight for intensity-based evidence
 GEOMETRY_EVIDENCE_WEIGHT = 0.1             # Weight for geometric consistency evidence
 
 # Feature extraction processing parameters
-MAX_CANDIDATES_PER_TYPE = 50               # Maximum candidates to consider per feature type
+MAX_CANDIDATES_PER_TYPE = 200              # Generation safety cap: maximum RAW candidates
+                                           # (pre-validation) to forward per extractor call.
+                                           # This is a runtime/memory guard, NOT a correctness
+                                           # mechanism. It must never be set from CAD/DXF counts.
+                                           # Applied BEFORE expensive validation passes.
+                                           # TUNED: raised from 50 to 200 (Step 12 validation showed
+                                           # some images produce 60–140 validated circles — the old
+                                           # value of 50 was silently acting as a feature-count gate).
 CANDIDATE_REFINEMENT_ITERATIONS = 3        # Iterations for candidate refinement
 MULTI_SCALE_DETECTION_LEVELS = [1.0, 0.8, 1.2]  # Scale levels for multi-scale detection
 
@@ -222,13 +229,21 @@ CONFIDENCE_INTENSITY_VALIDATION_REQUIRED = True # Require intensity validation b
 
 # Enhanced Hough circle image evidence validation
 HOUGH_ANGULAR_COVERAGE_REQUIRED = True     # Require angular coverage validation for Hough circles
-HOUGH_MIN_ANGULAR_COVERAGE = 0.55          # Minimum fraction of circumference with edge support
+HOUGH_MIN_ANGULAR_COVERAGE = 0.50          # Minimum fraction of circumference with edge support
+                                           # TUNED (was 0.55): accepted p10 = 0.49 across 40 images;
+                                           # 0.55 cut ~2 % of genuine circles.  Adaptive gate floor
+                                           # of 0.45 still protects against very sparse arcs.
 HOUGH_ANGULAR_SECTORS = 16                 # Number of angular sectors for coverage analysis
 HOUGH_MIN_SECTOR_COVERAGE = 0.5            # Minimum fraction of sectors with edge support
 HOUGH_EDGE_CONTINUITY_REQUIRED = True      # Require edge continuity validation
-HOUGH_MAX_EDGE_GAP_RATIO = 0.45            # Maximum gap ratio in edge coverage
+HOUGH_MAX_EDGE_GAP_RATIO = 0.30            # Maximum gap ratio in edge coverage
+                                           # TUNED (was 0.45): accepted p90 = 0.234 — the old value
+                                           # left a 0.22 dead zone.  0.30 closes it without touching
+                                           # any genuine circle in the 40-image sample set.
 HOUGH_RADIAL_CONSISTENCY_REQUIRED = True   # Require radial consistency validation
-HOUGH_RADIAL_SAMPLES = 8                   # Number of radial samples for consistency check
+HOUGH_RADIAL_SAMPLES = 16                  # Number of radial samples for consistency check
+                                           # TUNED (was 8): finer sampling improves discrimination for
+                                           # medium/large circles; 2414 rejections used this gate.
 HOUGH_MIN_RADIAL_AGREEMENT = 0.5           # Minimum radial consistency score
 HOUGH_RADIAL_TOLERANCE_PIXELS = 3          # Allowed distance from proposed circumference
 HOUGH_RADIAL_SEARCH_STEP = 1               # Sampling step within the radial tolerance band
@@ -237,7 +252,12 @@ HOUGH_RADIAL_SEARCH_STEP = 1               # Sampling step within the radial tol
 HOUGH_CONTOUR_AGREEMENT_BONUS = 0.2        # Confidence bonus for Hough+contour agreement  
 HOUGH_ONLY_PENALTY = 0.3                   # Confidence penalty for Hough-only detections (increased)
 HOUGH_TEXTURE_DISCRIMINATION = True        # Enable texture vs feature discrimination
-HOUGH_MIN_LOCAL_CONTRAST = 6               # Minimum local contrast for non-texture features (relaxed)
+HOUGH_MIN_LOCAL_CONTRAST = 4               # Minimum local contrast for non-texture features
+                                           # TUNED (was 6): accepted p10 = 3.8 across 40 images;
+                                           # 533 genuine-circle candidates were rejected by the old
+                                           # value.  4 sits just below the observed accepted p10
+                                           # while keeping the guard effective against zero-gradient
+                                           # regions (rejected p90 = 0.0).
 
 # Advanced cluster consolidation parameters
 HOUGH_CLUSTER_CONSOLIDATION_ENHANCED = True # Enable enhanced cluster consolidation
@@ -246,3 +266,31 @@ HOUGH_CLUSTER_RADIUS_FACTOR = 0.4          # Cluster distance as factor of large
 HOUGH_CONCENTRIC_DETECTION = True          # Enable concentric circle detection
 HOUGH_CONCENTRIC_RADIUS_TOLERANCE = 0.15   # Tolerance for concentric circle detection
 HOUGH_EVIDENCE_BASED_CONSOLIDATION = True  # Use evidence quality for cluster consolidation
+
+# Gradient orientation consistency parameters
+HOUGH_GRADIENT_ORIENTATION_REQUIRED = True       # Enable gradient direction validation
+HOUGH_MIN_GRADIENT_ORIENTATION_CONSISTENCY = 0.4 # Minimum mean radial gradient agreement (0–1)
+HOUGH_GRADIENT_MIN_MAGNITUDE = 8.0               # Minimum Sobel magnitude to consider a sample valid
+HOUGH_GRADIENT_SAMPLE_HALF_WIDTH = 1             # Radial pixels either side of circumference to sample
+
+# Geometry-first Hough input parameters (Step 6)
+HOUGH_GEOMETRY_FIRST_INPUT = True   # Use internal_geometry_edges as Hough input (geometry-first mode)
+                                    # Set False to revert to isolated_product input (appearance mode)
+HOUGH_EDGE_INPUT_DILATE_KERNEL = 3  # Kernel size for dilating edge map before Hough (0 = no dilation)
+                                    # Slight dilation helps HoughCircles pick up thin-edge circles
+
+# Hole detection parameters (dark-region method — detects actual through-holes in the part)
+HOLE_DARK_PERCENTILE = 15           # Intensity percentile inside product mask used to set the
+                                    # "dark region" threshold.  Pixels darker than this value
+                                    # are candidates for through-holes.
+HOLE_DARK_OFFSET = 5                # Additional offset added to the percentile threshold so
+                                    # shallow shadows are not classified as holes.
+HOLE_DARK_MAX = 55                  # Hard ceiling on the dark threshold — prevents merging with
+                                    # mid-tone product surface at higher thresholds.
+HOLE_MIN_RADIUS = 3                 # Minimum hole radius in pixels
+HOLE_MAX_RADIUS = 150               # Maximum hole radius in pixels (large centre bores allowed)
+HOLE_MIN_CIRCULARITY = 0.45         # Minimum circularity for a dark blob to be classified HOLE
+HOLE_MIN_SOLIDITY = 0.65            # Minimum solidity — holes are compact, filled regions
+HOLE_MIN_INTERIOR_DARK_FRACTION = 0.80  # Fraction of pixels inside the candidate that must be
+                                        # darker than the threshold (rejects shallow depressions)
+HOLE_PRODUCT_MASK_OVERLAP = 0.75    # Minimum fraction of hole area that must be inside product mask

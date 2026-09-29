@@ -1,0 +1,52 @@
+================================================================================
+EVIDENCE DISTRIBUTION REPORT — Step 11 Threshold Tuning
+Images processed : 40
+Total candidates : 16357  (accepted=2459  rejected=13898)
+================================================================================
+
+--- ACCEPTED candidates ---
+  edge_support                      n=2459  min=0.406  p10=0.562  p25=0.625  med=0.703  p75=0.812  p90=0.891  max=1.000
+  angular_coverage                  n=2459  min=0.453  p10=0.492  p25=0.539  med=0.625  p75=0.734  p90=0.812  max=1.000
+  sector_coverage                   n=2459  min=0.438  p10=0.625  p25=0.688  med=0.750  p75=0.875  p90=0.938  max=1.000
+  angular_uniformity                n=2459  min=0.528  p10=0.600  p25=0.631  med=0.670  p75=0.717  p90=0.774  max=1.000
+  max_gap_ratio                     n=2459  min=0.000  p10=0.062  p25=0.094  med=0.125  p75=0.188  p90=0.234  max=0.344
+  radial_consistency                n=2459  min=0.558  p10=0.569  p25=0.625  med=0.671  p75=0.773  p90=0.875  max=1.000
+  radial_error_median               n=2459  min=0.000  p10=0.000  p25=0.000  med=0.000  p75=0.000  p90=0.000  max=0.500
+  radial_error_p95                  n=2459  min=0.000  p10=0.000  p25=0.000  med=1.000  p75=1.500  p90=2.000  max=2.650
+  gradient_orientation              n=2459  min=0.501  p10=0.612  p25=0.646  med=0.686  p75=0.725  p90=0.771  max=0.968
+  local_contrast                    n=2459  min=2.438  p10=3.812  p25=5.812  med=10.500  p75=18.125  p90=29.888  max=89.875
+  intensity_consistency             n=2459  min=0.000  p10=0.395  p25=0.633  med=0.717  p75=0.782  p90=0.830  max=0.934
+
+--- REJECTED candidates ---
+  edge_support                      n=13898  min=0.078  p10=0.266  p25=0.344  med=0.422  p75=0.516  p90=0.625  max=1.000
+  angular_coverage                  n=13898  min=0.016  p10=0.211  p25=0.281  med=0.352  p75=0.438  p90=0.531  max=0.945
+  sector_coverage                   n=13898  min=0.000  p10=0.312  p25=0.375  med=0.500  p75=0.625  p90=0.688  max=1.000
+  angular_uniformity                n=13898  min=0.512  p10=0.605  p25=0.638  med=0.677  p75=0.719  p90=0.757  max=0.939
+  max_gap_ratio                     n=13898  min=0.016  p10=0.156  p25=1.000  med=1.000  p75=1.000  p90=1.000  max=1.000
+  radial_consistency                n=13898  min=0.000  p10=0.000  p25=0.000  med=0.000  p75=0.000  p90=0.481  max=1.000
+  radial_error_median               n=13898  min=0.000  p10=0.000  p25=0.000  med=0.000  p75=0.000  p90=0.000  max=3.000
+  radial_error_p95                  n=13898  min=0.000  p10=0.000  p25=0.000  med=0.000  p75=0.000  p90=1.800  max=3.000
+  gradient_orientation              n=13898  min=0.000  p10=0.000  p25=0.000  med=0.000  p75=0.000  p90=0.000  max=0.000
+  local_contrast                    n=13898  min=0.000  p10=0.000  p25=0.000  med=0.000  p75=0.000  p90=0.000  max=3.000
+  intensity_consistency             n=13898  min=0.000  p10=0.000  p25=0.000  med=0.000  p75=0.000  p90=0.000  max=0.000
+
+--- Rejection reasons (top 10) ---
+  10782  Insufficient angular coverage
+   2414  Poor radial consistency
+    533  Texture-like evidence
+    169  Excessive edge gaps
+
+--- Radius distribution (accepted) ---
+  n=2459  min=6.000  p10=11.000  p25=15.000  med=25.000  p75=42.000  p90=70.000  max=178.000
+
+--- Threshold guidance ---
+  (p10 of accepted candidates = conservative safe minimum)
+  (p90 of rejected candidates = aggressive reject ceiling)
+  A threshold between p90_rejected and p10_accepted separates populations.
+
+  angular_coverage                  accepted_p10=0.492  rejected_p90=0.531  separation=-0.039
+  sector_coverage                   accepted_p10=0.625  rejected_p90=0.688  separation=-0.062
+  radial_consistency                accepted_p10=0.569  rejected_p90=0.481  separation=+0.088
+  gradient_orientation              accepted_p10=0.612  rejected_p90=0.000  separation=+0.612
+  local_contrast                    accepted_p10=3.812  rejected_p90=0.000  separation=+3.812
+  max_gap_ratio                     accepted_p90=0.234  rejected_p10=0.156  (lower=better for accepted)

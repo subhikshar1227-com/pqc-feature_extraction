@@ -104,54 +104,75 @@ class ActualFeatureExtractor:
         logger.debug(f"  - outer_boundary_edges: {outer_boundary.shape}")
         
         # Extract features by type
+        # ------------------------------------------------------------------ #
+        # Generation safety cap                                               #
+        # Each extractor returns validated features.  We apply a per-type    #
+        # cap HERE — before aggregating — only as a computational guard.     #
+        # The cap must never influence which physical features are reported:  #
+        # if the cap fires, we log it explicitly and record the drop count   #
+        # in the result so the caller can detect and raise the limit.        #
+        # ------------------------------------------------------------------ #
         all_candidates = []
         candidate_stats = defaultdict(int)
-        
+        total_dropped_by_cap = 0
+
         # Extract circles
         logger.debug("Extracting circular features...")
         circles = self.circle_extractor.extract_circles(
-            internal_edges, isolated_product, product_mask, 
+            internal_edges, isolated_product, product_mask,
             raw_internal_edges, outer_boundary
         )
+        circles, dropped = self._apply_generation_cap(circles)
+        total_dropped_by_cap += dropped
         all_candidates.extend(circles)
         candidate_stats[ActualFeatureType.CIRCLE.value] = len(circles)
-        
+
         # Extract rectangles/squares
         logger.debug("Extracting rectangular features...")
         rectangles = self.rectangle_extractor.extract_rectangles(
             internal_edges, isolated_product, product_mask, raw_internal_edges
         )
+        rectangles, dropped = self._apply_generation_cap(rectangles)
+        total_dropped_by_cap += dropped
         all_candidates.extend(rectangles)
-        candidate_stats[ActualFeatureType.RECTANGLE.value] += len([r for r in rectangles if r.feature_type == ActualFeatureType.RECTANGLE])
-        candidate_stats[ActualFeatureType.SQUARE.value] += len([r for r in rectangles if r.feature_type == ActualFeatureType.SQUARE])
-        
+        candidate_stats[ActualFeatureType.RECTANGLE.value] += len(
+            [r for r in rectangles if r.feature_type == ActualFeatureType.RECTANGLE])
+        candidate_stats[ActualFeatureType.SQUARE.value] += len(
+            [r for r in rectangles if r.feature_type == ActualFeatureType.SQUARE])
+
         # Extract general contours
         logger.debug("Extracting general contour features...")
         contours = self.contour_extractor.extract_contours(
             internal_edges, isolated_product, product_mask, raw_internal_edges
         )
+        contours, dropped = self._apply_generation_cap(contours)
+        total_dropped_by_cap += dropped
         all_candidates.extend(contours)
         candidate_stats[ActualFeatureType.GENERAL_CONTOUR.value] = len(contours)
-        
-        logger.info(f"Initial extraction: {len(all_candidates)} total candidates")
+
+        logger.info(f"Post-validation candidates: {len(all_candidates)} total")
         for feature_type, count in candidate_stats.items():
             logger.info(f"  - {feature_type}: {count}")
-        
-        # Apply candidate limits per type
-        limited_candidates = self._apply_candidate_limits(all_candidates)
-        
+        if total_dropped_by_cap > 0:
+            logger.warning(
+                f"Generation cap dropped {total_dropped_by_cap} validated candidates. "
+                f"Consider raising MAX_CANDIDATES_PER_TYPE (currently "
+                f"{self.max_candidates_per_type})."
+            )
+
         # Suppress duplicate candidates
-        unique_candidates = self._suppress_duplicates(limited_candidates)
-        
+        # (all remaining candidates have already passed strict validation)
+        unique_candidates = self._suppress_duplicates(all_candidates)
+
         # Calculate final statistics
         final_stats_by_type = defaultdict(int)
         confidence_by_type = defaultdict(list)
-        
+
         for feature in unique_candidates:
             feature_type = feature.feature_type.value
             final_stats_by_type[feature_type] += 1
             confidence_by_type[feature_type].append(feature.evidence.confidence)
-        
+
         # Calculate average confidence by type
         avg_confidence_by_type = {}
         for feature_type, confidences in confidence_by_type.items():
@@ -159,15 +180,18 @@ class ActualFeatureExtractor:
                 avg_confidence_by_type[feature_type] = float(np.mean(confidences))
             else:
                 avg_confidence_by_type[feature_type] = 0.0
-        
-        overall_avg_confidence = float(np.mean([f.evidence.confidence for f in unique_candidates])) if unique_candidates else 0.0
-        
+
+        overall_avg_confidence = (
+            float(np.mean([f.evidence.confidence for f in unique_candidates]))
+            if unique_candidates else 0.0
+        )
+
         # Determine detection methods and representations used
         detection_methods = list(set(f.detection_method for f in unique_candidates))
         representations_used = list(set(f.source_representation for f in unique_candidates))
-        
+
         processing_time = time.time() - start_time
-        
+
         # Create result
         result = ActualFeatureExtractionResult(
             source_image_path=preprocessing_result.source_image_path,
@@ -176,7 +200,8 @@ class ActualFeatureExtractor:
             total_candidates_generated=len(all_candidates),
             candidates_by_type=dict(candidate_stats),
             features_by_type=dict(final_stats_by_type),
-            duplicate_candidates_suppressed=len(limited_candidates) - len(unique_candidates),
+            duplicate_candidates_suppressed=len(all_candidates) - len(unique_candidates),
+            candidates_dropped_by_generation_cap=total_dropped_by_cap,
             average_confidence=overall_avg_confidence,
             confidence_by_type=avg_confidence_by_type,
             detection_methods_used=detection_methods,
@@ -193,28 +218,65 @@ class ActualFeatureExtractor:
         
         return result
     
+    def _apply_generation_cap(
+        self, candidates: List[ActualFeature]
+    ) -> tuple:
+        """
+        Apply the generation safety cap to a list of already-validated candidates.
+
+        This is a **computational guard only**.  It limits the number of features
+        forwarded to deduplication so that pathological images with thousands of
+        small contours do not cause quadratic-time duplicate suppression.
+
+        The cap sorts by confidence (best first) so that if truncation does
+        occur, the highest-quality survivors are kept.  Any drop is logged as
+        a warning and counted in the result so the caller can detect and raise
+        ``MAX_CANDIDATES_PER_TYPE`` when needed.
+
+        The cap is applied per feature type independently so that a flood of
+        one type cannot crowd out all other types.
+
+        Returns
+        -------
+        (kept : List[ActualFeature], dropped : int)
+        """
+        if len(candidates) <= self.max_candidates_per_type:
+            return candidates, 0
+
+        # Group by type and cap each independently
+        by_type: dict = defaultdict(list)
+        for c in candidates:
+            by_type[c.feature_type].append(c)
+
+        kept: List[ActualFeature] = []
+        dropped = 0
+        for feature_type, group in by_type.items():
+            if len(group) > self.max_candidates_per_type:
+                group.sort(key=lambda f: f.evidence.confidence, reverse=True)
+                n_dropped = len(group) - self.max_candidates_per_type
+                dropped += n_dropped
+                logger.warning(
+                    f"Generation cap: {feature_type.value} had {len(group)} validated "
+                    f"candidates; dropping {n_dropped} lowest-confidence ones. "
+                    f"Raise MAX_CANDIDATES_PER_TYPE if genuine features may be lost."
+                )
+                kept.extend(group[: self.max_candidates_per_type])
+            else:
+                kept.extend(group)
+
+        return kept, dropped
+
     def _apply_candidate_limits(self, candidates: List[ActualFeature]) -> List[ActualFeature]:
-        """Apply per-type candidate limits to prevent excessive candidates."""
-        limited_candidates = []
-        
-        # Group candidates by type
-        by_type = defaultdict(list)
-        for candidate in candidates:
-            by_type[candidate.feature_type].append(candidate)
-        
-        # Apply limits per type
-        for feature_type, type_candidates in by_type.items():
-            # Sort by confidence (highest first)
-            type_candidates.sort(key=lambda f: f.evidence.confidence, reverse=True)
-            
-            # Take top candidates up to limit
-            limited = type_candidates[:self.max_candidates_per_type]
-            limited_candidates.extend(limited)
-            
-            if len(type_candidates) > self.max_candidates_per_type:
-                logger.debug(f"Limited {feature_type.value} candidates: {len(type_candidates)} -> {len(limited)}")
-        
-        return limited_candidates
+        """
+        Deprecated — kept for backward compatibility only.
+
+        The old post-validation limit has been replaced by ``_apply_generation_cap``
+        which runs before deduplication.  This wrapper forwards to the new method
+        and discards the drop count so callers that still reference the old name
+        continue to work.
+        """
+        kept, _ = self._apply_generation_cap(candidates)
+        return kept
     
     def _suppress_duplicates(self, candidates: List[ActualFeature]) -> List[ActualFeature]:
         """Suppress duplicate candidates using geometric similarity."""
