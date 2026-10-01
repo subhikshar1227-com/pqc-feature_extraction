@@ -10,6 +10,8 @@ import numpy as np
 import cv2
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 from feature_inspection.actual import (
     ActualFeature, ActualFeatureType, GeometricProperties, EvidenceMetrics,
@@ -19,6 +21,38 @@ from feature_inspection.actual.circle_extractor import CircleExtractor
 from feature_inspection.actual.rectangle_extractor import RectangleExtractor
 from feature_inspection.actual.contour_extractor import ContourExtractor
 from feature_inspection.preprocessing import PreprocessingResult
+
+
+def make_circle_feature(feature_id, center, radius, method, source, confidence=0.8,
+                        edge_support=0.8, contour_quality=0.8):
+    area = float(np.pi * radius * radius)
+    angles = np.linspace(0, 2 * np.pi, 64, endpoint=False)
+    contour = np.column_stack((
+        center[0] + radius * np.cos(angles),
+        center[1] + radius * np.sin(angles),
+    )).astype(np.int32)
+    return ActualFeature(
+        feature_id=feature_id,
+        feature_type=ActualFeatureType.CIRCLE,
+        geometry=GeometricProperties(
+            center=(float(center[0]), float(center[1])),
+            area=area,
+            perimeter=float(2 * np.pi * radius),
+            bounding_box=(int(center[0] - radius), int(center[1] - radius), int(2 * radius), int(2 * radius)),
+            radius=float(radius),
+            diameter=float(2 * radius),
+        ),
+        contour=contour,
+        evidence=EvidenceMetrics(
+            confidence=confidence,
+            edge_support=edge_support,
+            contour_quality=contour_quality,
+            intensity_consistency=0.7,
+            geometric_consistency=0.8,
+        ),
+        source_representation=source,
+        detection_method=method,
+    )
 
 
 class TestActualFeatureModels:
@@ -153,6 +187,181 @@ class TestCircleExtractor:
         assert validation["valid"] is False
         assert "coverage" in validation["rejection_reason"] or "localized" in validation["rejection_reason"] or "gap" in validation["rejection_reason"]
 
+    def test_clean_circle_has_consistent_radial_transition_polarity(self):
+        extractor = CircleExtractor()
+        image = np.full((200, 200), 30, dtype=np.uint8)
+        cv2.circle(image, (100, 100), 35, 220, -1)
+
+        result = extractor._validate_hough_candidate(
+            (100, 100), 35.0, cv2.Canny(image, 50, 150), image,
+            np.full((200, 200), 255, dtype=np.uint8),
+        )
+
+        assert result["radial_polarity_coherence"] >= extractor.min_radial_polarity_coherence
+        assert result["radial_polarity_coverage"] >= extractor.min_radial_polarity_coverage
+        assert result["valid"] is True
+
+    def test_noisy_texture_circle_is_rejected_for_inconsistent_polarity(self):
+        extractor = CircleExtractor()
+        rng = np.random.default_rng(17)
+        image = np.clip(128 + rng.normal(0, 18, (200, 200)), 0, 255).astype(np.uint8)
+        edges = cv2.Canny(image, 50, 150)
+
+        result = extractor._validate_hough_candidate(
+            (100, 100), 35.0, edges, image,
+            np.full((200, 200), 255, dtype=np.uint8),
+        )
+
+        assert result["valid"] is False
+        assert "polarity" in result["rejection_reason"] or "coverage" in result["rejection_reason"]
+
+    def test_repeated_local_arcs_do_not_pass_full_circle_validation(self):
+        extractor = CircleExtractor()
+        image = np.zeros((200, 200), dtype=np.uint8)
+        for start in range(0, 360, 60):
+            cv2.ellipse(image, (100, 100), (35, 35), 0, start, start + 18, 220, 2)
+        edges = cv2.Canny(image, 50, 150)
+
+        result = extractor._validate_hough_candidate(
+            (100, 100), 35.0, edges, image,
+            np.full((200, 200), 255, dtype=np.uint8),
+        )
+
+        assert result["valid"] is False
+        assert "coverage" in result["rejection_reason"] or "gap" in result["rejection_reason"]
+
+    def test_low_support_hough_candidate_is_rejected_with_gate_measurements(self):
+        extractor = CircleExtractor()
+        image = np.zeros((200, 200), dtype=np.uint8)
+        result = extractor._validate_hough_candidate(
+            (100, 100), 35.0, image, image,
+            np.full((200, 200), 255, dtype=np.uint8),
+        )
+
+        assert result["valid"] is False
+        assert result["edge_support"] == 0.0
+        assert "angular_coverage" in result
+        assert "max_gap_ratio" in result
+        assert "radial_consistency" in result
+        assert "radial_polarity_coherence" in result
+
+    def test_contour_circle_with_inconsistent_image_polarity_is_rejected(self):
+        extractor = CircleExtractor()
+        rng = np.random.default_rng(29)
+        image = np.clip(128 + rng.normal(0, 18, (200, 200)), 0, 255).astype(np.uint8)
+        candidate = make_circle_feature(
+            "texture-circle", (100, 100), 35, "contour_analysis", "raw_internal_edges",
+            confidence=0.95, edge_support=1.0, contour_quality=0.95,
+        )
+
+        accepted = extractor._validate_circle_candidate(
+            candidate,
+            np.full((200, 200), 255, dtype=np.uint8),
+            image,
+            np.full((200, 200), 255, dtype=np.uint8),
+        )
+
+        assert accepted is False
+        evidence = candidate.processing_parameters["circle_validation_evidence"]
+        assert evidence["decision"] == "rejected"
+        assert evidence["rejection_reason"] == "inconsistent_radial_transition_polarity"
+
+    def test_contour_circle_with_clean_polarity_is_preserved(self):
+        extractor = CircleExtractor()
+        image = np.full((200, 200), 30, dtype=np.uint8)
+        cv2.circle(image, (100, 100), 35, 220, -1)
+        candidate = make_circle_feature(
+            "clean-circle", (100, 100), 35, "contour_analysis", "internal_geometry_edges",
+            confidence=0.95, edge_support=0.9, contour_quality=0.9,
+        )
+
+        accepted = extractor._validate_circle_candidate(
+            candidate,
+            cv2.Canny(image, 50, 150),
+            image,
+            np.full((200, 200), 255, dtype=np.uint8),
+        )
+
+        assert accepted is True
+        assert candidate.processing_parameters["circle_validation_evidence"]["polarity_gate_passed"] is True
+
+    def test_polarity_evidence_controls_hough_confidence(self):
+        extractor = CircleExtractor()
+        strong = {
+            "valid": True,
+            "edge_support": 0.6,
+            "angular_coverage": 0.6,
+            "radial_consistency": 0.6,
+            "intensity_consistency": 0.6,
+            "radial_polarity_coherence": 0.9,
+            "radial_polarity_coverage": 0.9,
+            "contour_agreement": False,
+        }
+        weak = {**strong, "radial_polarity_coherence": 0.1, "radial_polarity_coverage": 0.2}
+
+        assert extractor._calculate_hough_evidence_confidence(strong) > extractor._calculate_hough_evidence_confidence(weak)
+
+    def test_high_hough_accumulator_score_cannot_override_failed_geometry(self):
+        extractor = CircleExtractor()
+        evidence = {
+            "valid": False,
+            "rejection_reason": "Insufficient angular coverage",
+            "edge_support": 1.0,
+            "angular_coverage": 0.1,
+            "radial_consistency": 0.0,
+            "intensity_consistency": 1.0,
+            "radial_polarity_coherence": 0.0,
+            "radial_polarity_coverage": 0.1,
+            "hough_accumulator_score": 1e9,
+        }
+
+        assert extractor._calculate_hough_evidence_confidence(evidence) == 0.0
+
+    def test_moderate_hough_candidate_with_strong_image_evidence_scores_positive(self):
+        extractor = CircleExtractor()
+        evidence = {
+            "valid": True,
+            "edge_support": 0.62,
+            "angular_coverage": 0.68,
+            "radial_consistency": 0.75,
+            "intensity_consistency": 0.64,
+            "radial_polarity_coherence": 0.88,
+            "radial_polarity_coverage": 0.82,
+            "contour_agreement": False,
+            "hough_accumulator_score": None,
+        }
+
+        confidence = extractor._calculate_hough_evidence_confidence(evidence)
+
+        assert confidence > extractor.min_confidence
+        assert confidence < 0.6
+
+    def test_hough_evidence_diagnostics_record_decision_and_unavailable_accumulator(self, monkeypatch):
+        size = 200
+        edges = np.zeros((size, size), dtype=np.uint8)
+        image = np.zeros((size, size), dtype=np.uint8)
+        cv2.circle(image, (100, 100), 35, 220, -1)
+        edges = cv2.Canny(image, 50, 150)
+        monkeypatch.setattr(
+            cv2,
+            "HoughCircles",
+            lambda *args, **kwargs: np.array([[[100.0, 100.0, 35.0]]], dtype=np.float32),
+        )
+        extractor = CircleExtractor()
+
+        extractor.extract_circles(edges, image, np.full_like(edges, 255))
+        records = extractor.last_diagnostics["hough_candidate_evidence"]
+
+        assert records
+        assert all(record["hough_accumulator_score"] is None for record in records)
+        assert all(record["decision"] in {"validated", "rejected", "passed_hough_gates"} for record in records)
+        assert all("radius_valid" in record and "area_valid" in record for record in records)
+        assert all("angular_coverage" in record for record in records)
+        assert all("product_mask_overlap" in record for record in records)
+        passed = [record for record in records if record.get("feature_id")]
+        assert passed
+        assert all("nearest_detected_circle_boundaries" in record for record in passed)
+
     def test_hough_only_detection_confidence_is_penalized(self):
         """Weak Hough-only evidence should not receive a high confidence score."""
         extractor = CircleExtractor()
@@ -282,6 +491,104 @@ class TestActualFeatureExtractor:
         assert extractor.circle_extractor is not None
         assert extractor.rectangle_extractor is not None
         assert extractor.contour_extractor is not None
+
+    def test_consolidates_same_boundary_across_methods_and_radii(self):
+        extractor = ActualFeatureExtractor()
+        contour = make_circle_feature(
+            "contour-boundary", (101, 100), 32, "contour_analysis", "internal_geometry_edges"
+        )
+        hough = make_circle_feature(
+            "hough-boundary", (100, 100), 30, "hough_circles", "isolated_product"
+        )
+
+        consolidated, diagnostics = extractor._consolidate_candidates([hough, contour])
+        reverse_consolidated, _ = extractor._consolidate_candidates([contour, hough])
+
+        assert len(consolidated) == 1
+        assert len(reverse_consolidated) == 1
+        assert consolidated[0].feature_id == reverse_consolidated[0].feature_id
+        assert diagnostics["merged"] == 1
+        assert set(consolidated[0].processing_parameters["consolidated_detection_methods"]) == {
+            "contour_analysis", "hough_circles"
+        }
+
+    def test_consolidates_offset_detections_with_nearly_equal_radii(self):
+        extractor = ActualFeatureExtractor()
+        candidates = [
+            make_circle_feature("edge-fit", (100, 100), 24, "contour_analysis", "raw_internal_edges"),
+            make_circle_feature("hough-fit", (110, 100), 23, "hough_circles", "isolated_product"),
+        ]
+
+        consolidated, diagnostics = extractor._consolidate_candidates(candidates)
+
+        assert len(consolidated) == 1
+        assert diagnostics["merged"] == 1
+
+    def test_preserves_nearby_separate_circles(self):
+        extractor = ActualFeatureExtractor()
+        circles = [
+            make_circle_feature("left", (100, 100), 20, "hough_circles", "isolated_product"),
+            make_circle_feature("right", (118, 100), 20, "hough_circles", "isolated_product"),
+        ]
+
+        consolidated, diagnostics = extractor._consolidate_candidates(circles)
+
+        assert len(consolidated) == 2
+        assert diagnostics["merged"] == 0
+
+    def test_preserves_independently_supported_nested_circles(self):
+        extractor = ActualFeatureExtractor()
+        circles = [
+            make_circle_feature("inner", (100, 100), 20, "contour_analysis", "internal_geometry_edges"),
+            make_circle_feature("outer", (100, 100), 30, "hough_circles", "isolated_product"),
+        ]
+
+        consolidated, _ = extractor._consolidate_candidates(circles)
+
+        assert len(consolidated) == 2
+
+    def test_candidate_limit_is_applied_after_consolidation_and_reported(self):
+        extractor = ActualFeatureExtractor()
+        extractor.max_candidates_per_type = 1
+        circle_candidates = [
+            make_circle_feature("first", (20, 20), 10, "hough_circles", "isolated_product", confidence=0.7),
+            make_circle_feature("second", (80, 80), 10, "hough_circles", "isolated_product", confidence=0.9),
+        ]
+        extractor.circle_extractor = Mock()
+        extractor.circle_extractor.extract_circles.return_value = circle_candidates
+        extractor.circle_extractor.last_diagnostics = {
+            "raw_candidates_by_detector": {"circle_hough_circles:isolated_product": 2},
+            "validated_candidates_by_detector": {"circle_hough_circles:isolated_product": 2},
+            "rejected_by_validation_by_detector": {},
+        }
+        extractor.rectangle_extractor = Mock()
+        extractor.rectangle_extractor.extract_rectangles.return_value = []
+        extractor.rectangle_extractor.last_diagnostics = {}
+        extractor.contour_extractor = Mock()
+        extractor.contour_extractor.extract_contours.return_value = []
+        extractor.contour_extractor.last_diagnostics = {}
+        image = np.zeros((100, 100), dtype=np.uint8)
+        preprocessing = SimpleNamespace(
+            source_image_path=Path("generic-image.png"),
+            preprocessing_successful=True,
+            isolation_successful=True,
+            internal_geometry_edges=image,
+            isolated_product_image=image,
+            product_mask=image,
+            raw_internal_geometry_edges=image,
+            outer_boundary_edges=image,
+            scale_factor=1.0,
+            roi_offset=(0, 0),
+        )
+
+        result = extractor.extract_features(preprocessing)
+
+        assert len(result.features) == 1
+        assert result.features[0].feature_id == "second"
+        assert result.diagnostics["candidates_entering_consolidation"] == 2
+        assert result.diagnostics["consolidated_candidates"] == 2
+        assert result.diagnostics["candidates_removed_by_candidate_limit"] == 1
+        assert result.diagnostics["final_features_by_detection_method"] == {"hough_circles": 1}
     
     def test_empty_preprocessing_result(self):
         """Test handling of failed preprocessing."""

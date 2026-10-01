@@ -63,6 +63,7 @@ class ContourExtractor:
         self.enhanced_min_area = CONTOUR_MIN_AREA_ENHANCED
         self.max_area_image_fraction = CONTOUR_MAX_AREA_IMAGE_FRACTION
         self.geometric_stability_required = CONTOUR_GEOMETRIC_STABILITY_REQUIRED
+        self.last_diagnostics = {}
     
     def extract_contours(self,
                         internal_edges: np.ndarray,
@@ -97,9 +98,26 @@ class ContourExtractor:
         
         # Validate and refine candidates
         validated_contours = []
+        validated_by_detector = {}
         for candidate in candidates:
             if self._validate_contour_candidate(candidate, internal_edges, isolated_product, product_mask):
                 validated_contours.append(candidate)
+                key = f"general_contour_{candidate.detection_method}:{candidate.source_representation}"
+                validated_by_detector[key] = validated_by_detector.get(key, 0) + 1
+
+        raw_by_detector = {}
+        for candidate in candidates:
+            key = f"general_contour_{candidate.detection_method}:{candidate.source_representation}"
+            raw_by_detector[key] = raw_by_detector.get(key, 0) + 1
+        self.last_diagnostics = {
+            "raw_candidates_by_detector": raw_by_detector,
+            "prevalidation_candidates_by_detector": raw_by_detector.copy(),
+            "validated_candidates_by_detector": validated_by_detector,
+            "rejected_by_validation_by_detector": {
+                key: count - validated_by_detector.get(key, 0)
+                for key, count in raw_by_detector.items()
+            },
+        }
         
         logger.info(f"Contour extraction: {len(candidates)} candidates -> {len(validated_contours)} validated")
         return validated_contours

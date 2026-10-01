@@ -27,7 +27,17 @@ from ..config import (
     CROSS_TYPE_DUPLICATE_ENABLED, CROSS_TYPE_CENTER_THRESHOLD,
     CROSS_TYPE_SIZE_THRESHOLD, CROSS_TYPE_OVERLAP_THRESHOLD,
     ENHANCED_DUPLICATE_SUPPRESSION, SAME_TYPE_CENTER_DISTANCE_STRICT,
-    HOUGH_CLUSTER_CONSOLIDATION, HOUGH_CLUSTER_RADIUS_TOLERANCE
+    HOUGH_CLUSTER_CONSOLIDATION, HOUGH_CLUSTER_RADIUS_TOLERANCE,
+    ACTUAL_CIRCLE_CONSOLIDATION_CENTER_DISTANCE_FACTOR,
+    ACTUAL_CIRCLE_CONSOLIDATION_RADIUS_GAP_RATIO,
+    ACTUAL_CIRCLE_NESTED_CENTER_DISTANCE_FACTOR,
+    ACTUAL_CIRCLE_NESTED_RADIUS_GAP_RATIO,
+    ACTUAL_CIRCLE_NESTED_MIN_EDGE_SUPPORT,
+    ACTUAL_CIRCLE_NESTED_MIN_CONTOUR_QUALITY,
+    ACTUAL_CIRCLE_CONSOLIDATION_EDGE_WEIGHT,
+    ACTUAL_CIRCLE_CONSOLIDATION_CONTOUR_WEIGHT,
+    ACTUAL_CIRCLE_CONSOLIDATION_GEOMETRY_WEIGHT,
+    ACTUAL_CIRCLE_CONSOLIDATION_CONFIDENCE_WEIGHT
 )
 
 logger = logging.getLogger(__name__)
@@ -69,6 +79,12 @@ class ActualFeatureExtractor:
         self.strict_center_distance = SAME_TYPE_CENTER_DISTANCE_STRICT
         self.cluster_consolidation = HOUGH_CLUSTER_CONSOLIDATION
         self.cluster_radius_tolerance = HOUGH_CLUSTER_RADIUS_TOLERANCE
+        self.circle_center_distance_factor = ACTUAL_CIRCLE_CONSOLIDATION_CENTER_DISTANCE_FACTOR
+        self.circle_radius_gap_ratio = ACTUAL_CIRCLE_CONSOLIDATION_RADIUS_GAP_RATIO
+        self.nested_center_distance_factor = ACTUAL_CIRCLE_NESTED_CENTER_DISTANCE_FACTOR
+        self.nested_radius_gap_ratio = ACTUAL_CIRCLE_NESTED_RADIUS_GAP_RATIO
+        self.nested_min_edge_support = ACTUAL_CIRCLE_NESTED_MIN_EDGE_SUPPORT
+        self.nested_min_contour_quality = ACTUAL_CIRCLE_NESTED_MIN_CONTOUR_QUALITY
     
     def extract_features(self, preprocessing_result: PreprocessingResult) -> ActualFeatureExtractionResult:
         """
@@ -137,11 +153,28 @@ class ActualFeatureExtractor:
         for feature_type, count in candidate_stats.items():
             logger.info(f"  - {feature_type}: {count}")
         
-        # Apply candidate limits per type
-        limited_candidates = self._apply_candidate_limits(all_candidates)
+        extractor_diagnostics = {
+            "circles": self.circle_extractor.last_diagnostics,
+            "rectangles": self.rectangle_extractor.last_diagnostics,
+            "contours": self.contour_extractor.last_diagnostics,
+        }
+
+        # Consolidate detector overlap before the safety cap can discard candidates.
+        consolidated_candidates, consolidation_diagnostics = self._consolidate_candidates(all_candidates)
+
+        # Apply candidate limits per type after consolidation and retain cap counts.
+        counts_before_cap = self._count_by_type(consolidated_candidates)
+        limited_candidates = self._apply_candidate_limits(consolidated_candidates)
+        counts_after_cap = self._count_by_type(limited_candidates)
+        cap_removed_by_type = {
+            feature_type: count - counts_after_cap.get(feature_type, 0)
+            for feature_type, count in counts_before_cap.items()
+            if count > counts_after_cap.get(feature_type, 0)
+        }
         
         # Suppress duplicate candidates
         unique_candidates = self._suppress_duplicates(limited_candidates)
+        final_duplicate_suppressed = len(limited_candidates) - len(unique_candidates)
         
         # Calculate final statistics
         final_stats_by_type = defaultdict(int)
@@ -165,6 +198,29 @@ class ActualFeatureExtractor:
         # Determine detection methods and representations used
         detection_methods = list(set(f.detection_method for f in unique_candidates))
         representations_used = list(set(f.source_representation for f in unique_candidates))
+        raw_by_detector = self._merge_diagnostic_counts(extractor_diagnostics, "raw_candidates_by_detector")
+        validated_by_detector = self._merge_diagnostic_counts(extractor_diagnostics, "validated_candidates_by_detector")
+        rejected_by_detector = self._merge_diagnostic_counts(extractor_diagnostics, "rejected_by_validation_by_detector")
+        final_by_method = self._count_by_attribute(unique_candidates, lambda feature: feature.detection_method)
+        final_by_source = self._count_by_attribute(unique_candidates, lambda feature: feature.source_representation)
+        diagnostics = {
+            "detectors": extractor_diagnostics,
+            "raw_candidates_by_detector": raw_by_detector,
+            "validated_candidates_by_detector": validated_by_detector,
+            "rejected_by_validation_by_detector": rejected_by_detector,
+            "candidates_entering_consolidation": len(all_candidates),
+            "candidates_merged_during_consolidation": consolidation_diagnostics["merged"],
+            "consolidated_candidates": len(consolidated_candidates),
+            "candidates_removed_by_candidate_limit": sum(cap_removed_by_type.values()),
+            "candidates_removed_by_candidate_limit_by_type": cap_removed_by_type,
+            "candidates_after_candidate_limit": len(limited_candidates),
+            "candidates_removed_by_final_duplicate_suppression": final_duplicate_suppressed,
+            "final_features": len(unique_candidates),
+            "final_features_by_type": dict(final_stats_by_type),
+            "final_features_by_detection_method": final_by_method,
+            "final_features_by_source_representation": final_by_source,
+            "circle_consolidation": consolidation_diagnostics,
+        }
         
         processing_time = time.time() - start_time
         
@@ -173,10 +229,12 @@ class ActualFeatureExtractor:
             source_image_path=preprocessing_result.source_image_path,
             preprocessing_successful=preprocessing_result.preprocessing_successful,
             features=unique_candidates,
-            total_candidates_generated=len(all_candidates),
+            total_candidates_generated=sum(raw_by_detector.values()),
             candidates_by_type=dict(candidate_stats),
             features_by_type=dict(final_stats_by_type),
-            duplicate_candidates_suppressed=len(limited_candidates) - len(unique_candidates),
+            duplicate_candidates_suppressed=(
+                consolidation_diagnostics["merged"] + final_duplicate_suppressed
+            ),
             average_confidence=overall_avg_confidence,
             confidence_by_type=avg_confidence_by_type,
             detection_methods_used=detection_methods,
@@ -184,7 +242,8 @@ class ActualFeatureExtractor:
             processing_time_seconds=processing_time,
             coordinate_system="processed",
             scale_factor=preprocessing_result.scale_factor,
-            roi_offset=preprocessing_result.roi_offset
+            roi_offset=preprocessing_result.roi_offset,
+            diagnostics=diagnostics
         )
         
         logger.info(f"Feature extraction complete: {len(unique_candidates)} features in {processing_time:.2f}s")
@@ -204,8 +263,16 @@ class ActualFeatureExtractor:
         
         # Apply limits per type
         for feature_type, type_candidates in by_type.items():
-            # Sort by confidence (highest first)
-            type_candidates.sort(key=lambda f: f.evidence.confidence, reverse=True)
+            # Keep the cap stable when candidates have equal confidence.
+            type_candidates.sort(key=lambda feature: (
+                -feature.evidence.confidence,
+                feature.geometry.center[0],
+                feature.geometry.center[1],
+                feature.geometry.radius or 0.0,
+                feature.detection_method,
+                feature.source_representation,
+                feature.feature_id,
+            ))
             
             # Take top candidates up to limit
             limited = type_candidates[:self.max_candidates_per_type]
@@ -215,6 +282,129 @@ class ActualFeatureExtractor:
                 logger.debug(f"Limited {feature_type.value} candidates: {len(type_candidates)} -> {len(limited)}")
         
         return limited_candidates
+
+    @staticmethod
+    def _count_by_type(candidates: List[ActualFeature]) -> Dict[str, int]:
+        counts = defaultdict(int)
+        for candidate in candidates:
+            counts[candidate.feature_type.value] += 1
+        return dict(counts)
+
+    @staticmethod
+    def _count_by_attribute(candidates: List[ActualFeature], getter) -> Dict[str, int]:
+        counts = defaultdict(int)
+        for candidate in candidates:
+            counts[getter(candidate)] += 1
+        return dict(counts)
+
+    @staticmethod
+    def _merge_diagnostic_counts(extractor_diagnostics: Dict[str, Any], key: str) -> Dict[str, int]:
+        merged = defaultdict(int)
+        for diagnostic in extractor_diagnostics.values():
+            for detector, count in diagnostic.get(key, {}).items():
+                merged[detector] += count
+        return dict(merged)
+
+    def _consolidate_candidates(self, candidates: List[ActualFeature]):
+        """Merge only circle detections whose measured boundaries closely coincide."""
+        circles = [candidate for candidate in candidates if candidate.feature_type == ActualFeatureType.CIRCLE]
+        others = [candidate for candidate in candidates if candidate.feature_type != ActualFeatureType.CIRCLE]
+        ranked = sorted(
+            circles,
+            key=lambda feature: (
+                -self._circle_evidence_score(feature),
+                feature.geometry.center[0],
+                feature.geometry.center[1],
+                feature.geometry.radius or 0.0,
+                feature.detection_method,
+                feature.source_representation,
+                feature.feature_id,
+            ),
+        )
+        representatives = []
+        merged_members = defaultdict(list)
+
+        for candidate in ranked:
+            matching = next(
+                (index for index, representative in enumerate(representatives)
+                 if self._are_duplicate_circle_boundaries(candidate, representative)),
+                None,
+            )
+            if matching is None:
+                representatives.append(candidate)
+                merged_members[candidate.feature_id].append(candidate)
+            else:
+                merged_members[representatives[matching].feature_id].append(candidate)
+
+        for representative in representatives:
+            members = merged_members[representative.feature_id]
+            if len(members) > 1:
+                representative.processing_parameters["consolidated_detections"] = [
+                    {
+                        "feature_id": member.feature_id,
+                        "detection_method": member.detection_method,
+                        "source_representation": member.source_representation,
+                        "radius": member.geometry.radius,
+                    }
+                    for member in members
+                ]
+                representative.processing_parameters["consolidated_detection_methods"] = sorted({
+                    member.detection_method for member in members
+                })
+                representative.processing_parameters["consolidated_source_representations"] = sorted({
+                    member.source_representation for member in members
+                })
+
+        diagnostics = {
+            "input_circle_candidates": len(circles),
+            "output_circle_candidates": len(representatives),
+            "merged": len(circles) - len(representatives),
+            "merged_groups": [
+                [member.feature_id for member in members]
+                for members in merged_members.values()
+                if len(members) > 1
+            ],
+        }
+        return representatives + others, diagnostics
+
+    @staticmethod
+    def _circle_evidence_score(feature: ActualFeature) -> float:
+        evidence = feature.evidence
+        return (
+            ACTUAL_CIRCLE_CONSOLIDATION_EDGE_WEIGHT * evidence.edge_support
+            + ACTUAL_CIRCLE_CONSOLIDATION_CONTOUR_WEIGHT * evidence.contour_quality
+            + ACTUAL_CIRCLE_CONSOLIDATION_GEOMETRY_WEIGHT * evidence.geometric_consistency
+            + ACTUAL_CIRCLE_CONSOLIDATION_CONFIDENCE_WEIGHT * evidence.confidence
+        )
+
+    def _are_duplicate_circle_boundaries(self, candidate1: ActualFeature, candidate2: ActualFeature) -> bool:
+        center1 = candidate1.geometry.center
+        center2 = candidate2.geometry.center
+        radius1 = candidate1.geometry.radius or 0.0
+        radius2 = candidate2.geometry.radius or 0.0
+        if radius1 <= 0 or radius2 <= 0:
+            return False
+
+        center_distance = float(np.hypot(center1[0] - center2[0], center1[1] - center2[1]))
+        mean_radius = (radius1 + radius2) / 2.0
+        min_radius = min(radius1, radius2)
+        radius_gap = abs(radius1 - radius2)
+
+        nested_and_independently_supported = (
+            center_distance <= mean_radius * self.nested_center_distance_factor
+            and radius_gap / min_radius >= self.nested_radius_gap_ratio
+            and min(candidate1.evidence.edge_support, candidate2.evidence.edge_support) >= self.nested_min_edge_support
+            and min(candidate1.evidence.contour_quality, candidate2.evidence.contour_quality) >= self.nested_min_contour_quality
+        )
+        if nested_and_independently_supported:
+            return False
+
+        center_distance_ratio = center_distance / mean_radius
+        radius_gap_ratio = radius_gap / min_radius
+        return (
+            center_distance_ratio <= self.circle_center_distance_factor
+            and radius_gap_ratio <= self.circle_radius_gap_ratio
+        )
     
     def _suppress_duplicates(self, candidates: List[ActualFeature]) -> List[ActualFeature]:
         """Suppress duplicate candidates using geometric similarity."""
@@ -255,6 +445,9 @@ class ActualFeatureExtractor:
     
     def _are_same_type_duplicates(self, candidate1: ActualFeature, candidate2: ActualFeature) -> bool:
         """Check if two candidates of the same type are duplicates."""
+        if candidate1.feature_type == ActualFeatureType.CIRCLE:
+            return self._are_duplicate_circle_boundaries(candidate1, candidate2)
+
         # Use enhanced stricter thresholds for same-type detection
         center_threshold = self.strict_center_distance if self.enhanced_duplicate_suppression else self.duplicate_center_threshold
         

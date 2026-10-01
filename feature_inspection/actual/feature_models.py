@@ -6,7 +6,7 @@ These models capture geometric and evidence information needed for later
 matching and comparison stages.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Tuple, Optional, Dict, Any
 from enum import Enum
 import numpy as np
@@ -200,6 +200,7 @@ class ActualFeatureExtractionResult:
     coordinate_system: str = "processed" # Coordinate system of detected features
     scale_factor: float = 1.0           # Scale factor to original coordinates
     roi_offset: Tuple[int, int] = (0, 0) # ROI offset if applicable
+    diagnostics: Dict[str, Any] = field(default_factory=dict)
     
     def get_features_by_type(self, feature_type: ActualFeatureType) -> List[ActualFeature]:
         """Get all features of a specific type."""
@@ -241,5 +242,6 @@ class ActualFeatureExtractionResult:
             processing_time_seconds=self.processing_time_seconds,
             coordinate_system="original",
             scale_factor=1.0,
-            roi_offset=(0, 0)
+            roi_offset=(0, 0),
+            diagnostics=self.diagnostics.copy()
         )

@@ -24,6 +24,13 @@ OUTPUTS_DIR = Path("outputs/actual_feature_extraction")
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
 
 
+def json_default(value):
+    """Convert NumPy scalar diagnostics to standard JSON scalar values."""
+    if isinstance(value, np.generic):
+        return value.item()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
 def collect_images(folder: Path) -> list[Path]:
     """Return all image files in a folder, sorted by name."""
     return sorted(p for p in folder.iterdir() if p.suffix.lower() in IMAGE_EXTS)
@@ -119,6 +126,7 @@ def save_feature_metadata(extraction_result, output_dir: Path):
         "representations_used": extraction_result.representations_used,
         "coordinate_system": extraction_result.coordinate_system,
         "scale_factor": extraction_result.scale_factor,
+        "diagnostics": extraction_result.diagnostics,
         
         # Individual features
         "detected_features": []
@@ -140,6 +148,8 @@ def save_feature_metadata(extraction_result, output_dir: Path):
             "source_representation": feature.source_representation,
             "detection_method": feature.detection_method
         }
+        if "circle_validation_evidence" in feature.processing_parameters:
+            feature_data["circle_validation_evidence"] = feature.processing_parameters["circle_validation_evidence"]
         
         # Add type-specific geometry
         if feature.geometry.radius is not None:
@@ -156,7 +166,7 @@ def save_feature_metadata(extraction_result, output_dir: Path):
     # Save metadata
     metadata_path = output_dir / "feature_extraction_metadata.json"
     with open(metadata_path, 'w') as f:
-        json.dump(metadata, f, indent=2)
+        json.dump(metadata, f, indent=2, default=json_default)
     
     logger.info(f"Saved feature metadata: {metadata_path}")
     return metadata_path

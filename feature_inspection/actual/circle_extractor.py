@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 from typing import List, Tuple, Optional
 import logging
+from collections import defaultdict
 
 from .feature_models import ActualFeature, ActualFeatureType, GeometricProperties, EvidenceMetrics
 from ..config import (
@@ -35,6 +36,15 @@ from ..config import (
     HOUGH_MIN_RADIAL_AGREEMENT, HOUGH_RADIAL_TOLERANCE_PIXELS,
     HOUGH_RADIAL_SEARCH_STEP, HOUGH_CONTOUR_AGREEMENT_BONUS,
     HOUGH_ONLY_PENALTY, HOUGH_TEXTURE_DISCRIMINATION, HOUGH_MIN_LOCAL_CONTRAST,
+    ACTUAL_CIRCLE_RADIAL_POLARITY_REQUIRED, ACTUAL_CIRCLE_RADIAL_POLARITY_SAMPLES,
+    ACTUAL_CIRCLE_RADIAL_POLARITY_SEARCH_PIXELS, ACTUAL_CIRCLE_RADIAL_POLARITY_MIN_GRADIENT,
+    ACTUAL_CIRCLE_MIN_RADIAL_POLARITY_COHERENCE, ACTUAL_CIRCLE_MIN_RADIAL_POLARITY_COVERAGE,
+    HOUGH_CONFIDENCE_EDGE_SUPPORT_WEIGHT, HOUGH_CONFIDENCE_ANGULAR_COVERAGE_WEIGHT,
+    HOUGH_CONFIDENCE_RADIAL_CONSISTENCY_WEIGHT,
+    HOUGH_CONFIDENCE_INTENSITY_CONSISTENCY_WEIGHT,
+    HOUGH_CONFIDENCE_POLARITY_COHERENCE_WEIGHT,
+    HOUGH_CONFIDENCE_POLARITY_COVERAGE_WEIGHT,
+    HOUGH_CIRCLE_NEIGHBOR_DIAGNOSTIC_LIMIT,
     HOUGH_CLUSTER_CONSOLIDATION_ENHANCED, HOUGH_SCALE_AWARE_DISTANCE,
     HOUGH_CLUSTER_RADIUS_FACTOR, HOUGH_CONCENTRIC_DETECTION,
     HOUGH_CONCENTRIC_RADIUS_TOLERANCE, HOUGH_EVIDENCE_BASED_CONSOLIDATION
@@ -116,6 +126,12 @@ class CircleExtractor:
         self.hough_only_penalty = HOUGH_ONLY_PENALTY
         self.texture_discrimination = HOUGH_TEXTURE_DISCRIMINATION
         self.min_local_contrast = HOUGH_MIN_LOCAL_CONTRAST
+        self.radial_polarity_required = ACTUAL_CIRCLE_RADIAL_POLARITY_REQUIRED
+        self.radial_polarity_samples = ACTUAL_CIRCLE_RADIAL_POLARITY_SAMPLES
+        self.radial_polarity_search_pixels = ACTUAL_CIRCLE_RADIAL_POLARITY_SEARCH_PIXELS
+        self.radial_polarity_min_gradient = ACTUAL_CIRCLE_RADIAL_POLARITY_MIN_GRADIENT
+        self.min_radial_polarity_coherence = ACTUAL_CIRCLE_MIN_RADIAL_POLARITY_COHERENCE
+        self.min_radial_polarity_coverage = ACTUAL_CIRCLE_MIN_RADIAL_POLARITY_COVERAGE
         
         # Enhanced clustering parameters
         self.enhanced_clustering = HOUGH_CLUSTER_CONSOLIDATION_ENHANCED
@@ -124,6 +140,13 @@ class CircleExtractor:
         self.concentric_detection = HOUGH_CONCENTRIC_DETECTION
         self.concentric_radius_tolerance = HOUGH_CONCENTRIC_RADIUS_TOLERANCE
         self.evidence_based_consolidation = HOUGH_EVIDENCE_BASED_CONSOLIDATION
+        self.last_diagnostics = {}
+        self._last_hough_candidate_diagnostics = []
+        self._radial_gradient_source_id = None
+        self._radial_gradient_x = None
+        self._radial_gradient_y = None
+        self._last_hough_raw_count = 0
+        self._last_hough_prevalidation_count = 0
     
     def extract_circles(self, 
                        internal_edges: np.ndarray,
@@ -147,40 +170,80 @@ class CircleExtractor:
         logger.debug("Starting circle extraction")
         
         candidates = []
+        self._last_hough_candidate_diagnostics = []
+        circle_candidate_evidence = []
+        self._last_hough_raw_count = 0
+        self._last_hough_prevalidation_count = 0
         
         # Method 1: Contour-based circle detection
         logger.debug(f"Extracting contour circles from internal_edges: {internal_edges.shape}")
         contour_circles = self._extract_contour_circles(internal_edges, product_mask)
         logger.debug(f"Found {len(contour_circles)} contour circles")
         candidates.extend(contour_circles)
-        
-        # Method 2: Hough circle detection
-        logger.debug(f"Extracting Hough circles from isolated_product: {isolated_product.shape}")
-        hough_circles = self._extract_hough_circles(isolated_product, product_mask, internal_edges)
-        logger.debug(f"Found {len(hough_circles)} Hough circles")
-        candidates.extend(hough_circles)
-        
-        # Method 3: Raw edge fallback for missed features
+
+        raw_circles = []
         if raw_internal_edges is not None:
-            logger.debug(f"Extracting raw edge circles from raw_internal_edges: {raw_internal_edges.shape}")
-            raw_circles = self._extract_contour_circles(raw_internal_edges, product_mask, 
-                                                       source_rep="raw_internal_edges")
+            logger.debug(f"Extracting raw edge fallback circles from raw_internal_edges: {raw_internal_edges.shape}")
+            raw_circles = self._extract_contour_circles(
+                raw_internal_edges, product_mask, source_rep="raw_internal_edges"
+            )
             logger.debug(f"Found {len(raw_circles)} raw edge circles")
             candidates.extend(raw_circles)
         
+        # Method 2: Hough circle detection
+        logger.debug(f"Extracting Hough circles from isolated_product: {isolated_product.shape}")
+        hough_circles = self._extract_hough_circles(
+            isolated_product, product_mask, internal_edges,
+            contour_support_candidates=contour_circles + raw_circles
+        )
+        logger.debug(f"Found {len(hough_circles)} Hough circles")
+        candidates.extend(hough_circles)
+        
         # Validate and refine candidates
         validated_circles = []
+        validated_by_detector = defaultdict(int)
         for candidate in candidates:
-            if self._validate_circle_candidate(candidate, internal_edges, isolated_product, product_mask):
+            validated = self._validate_circle_candidate(candidate, internal_edges, isolated_product, product_mask)
+            evidence_diagnostic = candidate.processing_parameters.get("circle_validation_evidence")
+            if evidence_diagnostic is not None and candidate.detection_method != "hough_circles":
+                circle_candidate_evidence.append(evidence_diagnostic)
+            if validated:
                 validated_circles.append(candidate)
-        
-        # Apply population-based area validation if enabled
-        if self.radius_anomaly_detection and len(validated_circles) > 2:
-            validated_circles = self._apply_population_area_validation(validated_circles)
-        
-        # Apply enhanced cluster consolidation if enabled
-        if self.enhanced_clustering and len(validated_circles) > 1:
-            validated_circles = self._apply_enhanced_cluster_consolidation(validated_circles)
+                validated_by_detector[self._detector_key(candidate)] += 1
+
+        raw_by_detector = {
+            "circle_contour_analysis:internal_geometry_edges": len(contour_circles),
+            "circle_hough_circles:isolated_product": self._last_hough_raw_count,
+        }
+        if raw_internal_edges is not None:
+            raw_by_detector["circle_contour_analysis:raw_internal_edges"] = len(raw_circles)
+        prevalidation_by_detector = {
+            "circle_contour_analysis:internal_geometry_edges": len(contour_circles),
+            "circle_hough_circles:isolated_product": self._last_hough_prevalidation_count,
+        }
+        if raw_internal_edges is not None:
+            prevalidation_by_detector["circle_contour_analysis:raw_internal_edges"] = len(raw_circles)
+        candidate_counts = defaultdict(int)
+        for candidate in candidates:
+            candidate_counts[self._detector_key(candidate)] += 1
+        rejected_before_validation = {
+            key: max(0, raw_by_detector.get(key, 0) - prevalidation_by_detector.get(key, 0))
+            for key in raw_by_detector
+        }
+        rejected_validation = {
+            key: max(0, candidate_counts.get(key, 0) - validated_by_detector.get(key, 0))
+            for key in candidate_counts
+        }
+        for key, count in rejected_before_validation.items():
+            rejected_validation[key] = rejected_validation.get(key, 0) + count
+        self.last_diagnostics = {
+            "raw_candidates_by_detector": raw_by_detector,
+            "prevalidation_candidates_by_detector": prevalidation_by_detector,
+            "validated_candidates_by_detector": dict(validated_by_detector),
+            "rejected_by_validation_by_detector": rejected_validation,
+            "hough_candidate_evidence": self._last_hough_candidate_diagnostics,
+            "contour_candidate_evidence": circle_candidate_evidence,
+        }
         
         logger.info(f"Circle extraction: {len(candidates)} candidates -> {len(validated_circles)} validated")
         return validated_circles
@@ -271,7 +334,8 @@ class CircleExtractor:
     
     def _extract_hough_circles(self, isolated_product: np.ndarray,
                               product_mask: np.ndarray,
-                              edge_reference: np.ndarray) -> List[ActualFeature]:
+                              edge_reference: np.ndarray,
+                              contour_support_candidates: Optional[List[ActualFeature]] = None) -> List[ActualFeature]:
         """Extract circles using Hough circle transform with configurable parameters."""
         circles = []
         
@@ -295,39 +359,86 @@ class CircleExtractor:
             maxRadius=self.max_radius
         )
         
+        self._last_hough_raw_count = int(len(hough_circles[0])) if hough_circles is not None else 0
         if hough_circles is not None:
             hough_circles = np.round(hough_circles[0, :]).astype("int")
             
             for i, (center_x, center_y, radius) in enumerate(hough_circles):
                 center = (float(center_x), float(center_y))
                 radius = float(radius)
+                candidate_diagnostic = {
+                    "candidate_index": int(i),
+                    "center": center,
+                    "radius": radius,
+                    "hough_accumulator_score": None,
+                    "hough_accumulator_threshold": self.hough_param2,
+                    "gate_decisions": {},
+                }
+                self._last_hough_candidate_diagnostics.append(candidate_diagnostic)
+
+                area = np.pi * radius * radius
+                radius_valid = self.min_radius <= radius <= self.max_radius
+                if self.radius_anomaly_detection:
+                    radius_valid = radius_valid and self._validate_radius_bounds(radius, product_mask)
+                candidate_diagnostic.update({
+                    "area": area,
+                    "area_valid": self.min_area <= area <= self.max_area,
+                    "radius_valid": radius_valid,
+                    "gate_decisions": {
+                        "area": self.min_area <= area <= self.max_area,
+                        "radius": radius_valid,
+                    },
+                })
+
+                if (self.angular_coverage_required or self.edge_continuity_required or
+                    self.radial_consistency_required or self.texture_discrimination or
+                    self.radial_polarity_required):
+                    validation_result = self._validate_hough_candidate(
+                        center, radius, edge_reference, isolated_product, product_mask
+                    )
+                    candidate_diagnostic.update(validation_result)
+                    candidate_diagnostic["gate_decisions"]["image_evidence"] = validation_result["valid"]
+                    candidate_diagnostic["hough_evidence_confidence"] = (
+                        self._calculate_hough_evidence_confidence(validation_result)
+                    )
+                    candidate_diagnostic["contour_support"] = self._measure_contour_support(
+                        center, radius, contour_support_candidates or []
+                    )
+                else:
+                    validation_result = None
+                    candidate_diagnostic["hough_evidence_confidence"] = None
                 
                 # Check overlap with product mask
-                if not self._check_product_mask_overlap(center, radius, product_mask):
+                mask_overlap = self._calculate_product_mask_overlap(center, radius, product_mask)
+                candidate_diagnostic["product_mask_overlap"] = mask_overlap
+                candidate_diagnostic["gate_decisions"]["product_mask_overlap"] = mask_overlap >= self.mask_overlap_threshold
+                if mask_overlap < self.mask_overlap_threshold:
+                    candidate_diagnostic.update({"decision": "rejected", "rejection_reason": "product_mask_overlap"})
                     continue
                 
-                # Calculate area and perimeter  
-                area = np.pi * radius * radius
+                # Calculate perimeter after the independent radius/area measurements.
                 perimeter = 2 * np.pi * radius
                 
                 # Validate area bounds
                 if area < self.min_area or area > self.max_area:
+                    candidate_diagnostic.update({"area_valid": False, "decision": "rejected", "rejection_reason": "area_bounds"})
+                    candidate_diagnostic["gate_decisions"]["area"] = False
                     continue
+                candidate_diagnostic["area_valid"] = True
+                candidate_diagnostic["gate_decisions"]["area"] = True
                 
                 # Radius anomaly detection
-                if self.radius_anomaly_detection:
-                    if not self._validate_radius_bounds(radius, product_mask):
-                        continue
+                candidate_diagnostic["radius_valid"] = radius_valid
+                candidate_diagnostic["gate_decisions"]["radius"] = radius_valid
+                if not radius_valid:
+                    candidate_diagnostic.update({"decision": "rejected", "rejection_reason": "radius_bounds"})
+                    continue
                 
                 # Enhanced Hough validation - treat as candidate only
-                if (self.angular_coverage_required or self.edge_continuity_required or 
-                    self.radial_consistency_required or self.texture_discrimination):
-                    validation_result = self._validate_hough_candidate(
-                        center, radius, edge_reference, isolated_product, product_mask
-                    )
-                    
+                if validation_result is not None:
                     if not validation_result["valid"]:
                         logger.debug(f"Hough circle rejected at ({center[0]:.1f},{center[1]:.1f}) r={radius:.1f}: {validation_result['rejection_reason']}")
+                        candidate_diagnostic.update({"decision": "rejected", "rejection_reason": validation_result["rejection_reason"]})
                         continue
                 else:
                     # Simplified validation when enhanced features are disabled
@@ -357,6 +468,7 @@ class CircleExtractor:
                         "geometric_consistency": 0.8,
                         "intensity_evidence": 0.5
                     }
+                    candidate_diagnostic.update(validation_result)
                 
                 # Create approximate contour for the circle using configurable sampling
                 angles = np.linspace(0, 2*np.pi, self.hough_sampling_points)
@@ -414,10 +526,96 @@ class CircleExtractor:
                     source_representation="isolated_product",
                     detection_method="hough_circles"
                 )
+                circle.processing_parameters["circle_validation_evidence"] = candidate_diagnostic
+                circle.processing_parameters["hough_prevalidation_confidence"] = evidence.confidence
+                candidate_diagnostic.update({
+                    "decision": "passed_hough_gates",
+                    "feature_id": feature_id,
+                    "hough_prevalidation_confidence": evidence.confidence,
+                })
                 
                 circles.append(circle)
+        self._last_hough_prevalidation_count = len(circles)
+        self._add_nearby_boundary_diagnostics(contour_support_candidates or [])
         
         return circles
+
+    def _measure_contour_support(self, center: Tuple[float, float], radius: float,
+                                 contour_candidates: List[ActualFeature]) -> dict:
+        """Describe the nearest measured contour circle; it shares the primary edge pixels."""
+        if not contour_candidates:
+            return {"available": False, "source_pixels_independent": False}
+
+        nearest = min(
+            contour_candidates,
+            key=lambda candidate: (
+                np.hypot(center[0] - candidate.geometry.center[0], center[1] - candidate.geometry.center[1])
+                / max(radius, 1.0)
+                + abs(radius - (candidate.geometry.radius or 0.0)) / max(radius, 1.0)
+            ),
+        )
+        center_residual = float(
+            np.hypot(center[0] - nearest.geometry.center[0], center[1] - nearest.geometry.center[1]) / max(radius, 1.0)
+        )
+        radius_residual = float(abs(radius - (nearest.geometry.radius or 0.0)) / max(radius, 1.0))
+        return {
+            "available": True,
+            "source_pixels_independent": False,
+            "source_representation": nearest.source_representation,
+            "feature_id": nearest.feature_id,
+            "normalized_center_residual": center_residual,
+            "normalized_radius_residual": radius_residual,
+            "contour_quality": nearest.evidence.contour_quality,
+            "edge_support": nearest.evidence.edge_support,
+        }
+
+    def _add_nearby_boundary_diagnostics(self, contour_features: List[ActualFeature]) -> None:
+        for record in self._last_hough_candidate_diagnostics:
+            relationships = []
+            center = record["center"]
+            radius = record["radius"]
+            for other in self._last_hough_candidate_diagnostics:
+                if other is record:
+                    continue
+                other_radius = other["radius"]
+                center_distance = float(np.hypot(
+                    center[0] - other["center"][0], center[1] - other["center"][1]
+                ))
+                scale = max((radius + other_radius) / 2.0, 1.0)
+                relationships.append({
+                    "candidate_index": other["candidate_index"],
+                    "detection_method": "hough_circles",
+                    "source_representation": "isolated_product",
+                    "center_distance": center_distance,
+                    "radius_difference": abs(radius - other_radius),
+                    "normalized_boundary_distance": (center_distance + abs(radius - other_radius)) / scale,
+                    "circle_intersection": center_distance <= radius + other_radius,
+                    "nested_or_concentric": center_distance + min(radius, other_radius) <= max(radius, other_radius),
+                    "candidate_decision": other.get("decision", "pending"),
+                })
+            for other in contour_features:
+                other_radius = other.geometry.radius or 0.0
+                center_distance = float(np.hypot(
+                    center[0] - other.geometry.center[0], center[1] - other.geometry.center[1]
+                ))
+                scale = max((radius + other_radius) / 2.0, 1.0)
+                relationships.append({
+                    "feature_id": other.feature_id,
+                    "detection_method": other.detection_method,
+                    "source_representation": other.source_representation,
+                    "center_distance": center_distance,
+                    "radius_difference": abs(radius - other_radius),
+                    "normalized_boundary_distance": (center_distance + abs(radius - other_radius)) / scale,
+                    "circle_intersection": center_distance <= radius + other_radius,
+                    "nested_or_concentric": center_distance + min(radius, other_radius) <= max(radius, other_radius),
+                    "source_evidence_independence": "shares thresholded edge pixels with Hough edge validation",
+                })
+            relationships.sort(key=lambda item: item["normalized_boundary_distance"])
+            record["nearest_detected_circle_boundaries"] = relationships[:HOUGH_CIRCLE_NEIGHBOR_DIAGNOSTIC_LIMIT]
+
+    @staticmethod
+    def _detector_key(candidate: ActualFeature) -> str:
+        return f"circle_{candidate.detection_method}:{candidate.source_representation}"
     
     def _validate_circle_candidate(self, candidate: ActualFeature,
                                   internal_edges: np.ndarray,
@@ -431,24 +629,84 @@ class CircleExtractor:
         )
         candidate.evidence.intensity_consistency = intensity_consistency
         candidate.evidence.intensity_evidence = intensity_consistency
+
+        polarity_result = self._analyze_radial_polarity(
+            candidate.geometry.center, candidate.geometry.radius, isolated_product
+        )
+        diagnostic = candidate.processing_parameters.setdefault("circle_validation_evidence", {})
+        diagnostic.update({
+            "feature_id": candidate.feature_id,
+            "detection_method": candidate.detection_method,
+            "source_representation": candidate.source_representation,
+            "center": candidate.geometry.center,
+            "radius": candidate.geometry.radius,
+            "edge_support": candidate.evidence.edge_support,
+            "contour_quality": candidate.evidence.contour_quality,
+            "geometric_consistency": candidate.evidence.geometric_consistency,
+            "intensity_consistency": intensity_consistency,
+            "radial_polarity_coherence": polarity_result["coherence"],
+            "radial_polarity_coverage": polarity_result["coverage"],
+            "radial_polarity_positive_fraction": polarity_result["positive_fraction"],
+            "polarity_gate_enabled": self.radial_polarity_required,
+            "polarity_gate_passed": (
+                polarity_result["coherence"] >= self.min_radial_polarity_coherence
+                and polarity_result["coverage"] >= self.min_radial_polarity_coverage
+            ),
+            "source_evidence_independence": "intensity-gradient signal; independent of thresholded edge support map",
+        })
+
+        if self.radial_polarity_required and not diagnostic["polarity_gate_passed"]:
+            diagnostic.update({
+                "decision": "rejected",
+                "rejection_reason": "inconsistent_radial_transition_polarity",
+            })
+            return False
         
-        # Update overall confidence
-        confidence = self._calculate_final_confidence(candidate.evidence)
+        # Recompute Hough confidence from the original candidate evidence after
+        # intensity refinement; never let a synthetic fitted contour imply geometry.
+        if candidate.detection_method == "hough_circles":
+            validation_evidence = candidate.processing_parameters.get("circle_validation_evidence", {})
+            validation_evidence["intensity_consistency"] = intensity_consistency
+            confidence = self._calculate_hough_evidence_confidence(validation_evidence)
+        else:
+            confidence = self._calculate_final_confidence(candidate.evidence)
         candidate.evidence.confidence = confidence
         
         # Apply confidence threshold
         if confidence < self.min_confidence:
+            diagnostic.update({
+                "decision": "rejected",
+                "rejection_reason": "common_confidence_threshold",
+                "final_confidence": confidence,
+            })
             return False
         
         # Check edge support
         if candidate.evidence.edge_support < self.edge_support_threshold:
+            diagnostic.update({
+                "decision": "rejected",
+                "rejection_reason": "common_edge_support_threshold",
+                "final_confidence": confidence,
+            })
             return False
+
+        diagnostic.update({
+            "decision": "validated",
+            "rejection_reason": "",
+            "final_confidence": confidence,
+        })
         
         return True
     
     def _check_product_mask_overlap(self, center: Tuple[float, float], 
                                    radius: float, product_mask: np.ndarray) -> bool:
         """Check if circle overlaps sufficiently with product mask."""
+        return self._calculate_product_mask_overlap(center, radius, product_mask) >= self.mask_overlap_threshold
+
+    @staticmethod
+    def _calculate_product_mask_overlap(center: Tuple[float, float], radius: float,
+                                        product_mask: np.ndarray) -> float:
+        """Return the fraction of the candidate disk contained by the product mask."""
         # Create circle mask
         h, w = product_mask.shape
         circle_mask = np.zeros((h, w), dtype=np.uint8)
@@ -460,10 +718,9 @@ class CircleExtractor:
         circle_area = np.count_nonzero(circle_mask)
         
         if circle_area == 0:
-            return False
+            return 0.0
         
-        overlap_ratio = intersection_area / circle_area
-        return overlap_ratio >= self.mask_overlap_threshold
+        return intersection_area / circle_area
     
     def _calculate_edge_support(self, center: Tuple[float, float], 
                                radius: float, edge_image: np.ndarray) -> float:
@@ -562,28 +819,6 @@ class CircleExtractor:
         
         return True
     
-    def _apply_population_area_validation(self, circles: List[ActualFeature]) -> List[ActualFeature]:
-        """Apply population-based area validation to reject anomalously large circles."""
-        if len(circles) < 3:
-            return circles
-        
-        # Calculate area statistics
-        areas = [circle.geometry.area for circle in circles]
-        median_area = np.median(areas)
-        
-        # Filter out anomalously large circles
-        filtered_circles = []
-        for circle in circles:
-            area_ratio = circle.geometry.area / median_area if median_area > 0 else 1.0
-            
-            # Reject circles that are much larger than typical population
-            if area_ratio <= self.area_population_threshold:
-                filtered_circles.append(circle)
-            else:
-                logger.debug(f"Rejected anomalous circle {circle.feature_id}: area {circle.geometry.area} is {area_ratio:.1f}x median")
-        
-        return filtered_circles
-    
     def _validate_hough_candidate(self, center: Tuple[float, float], radius: float,
                                  edge_image: np.ndarray, intensity_image: np.ndarray,
                                  product_mask: np.ndarray) -> dict:
@@ -608,7 +843,12 @@ class CircleExtractor:
             "intensity_evidence": 0.0,
             "contour_agreement": False,
             "angular_uniformity": 0.0,
-            "max_gap_ratio": 1.0
+            "max_gap_ratio": 1.0,
+            "radial_polarity_coherence": 0.0,
+            "radial_polarity_coverage": 0.0,
+            "radial_polarity_positive_fraction": 0.0,
+            "contour_support": None,
+            "independent_contour_agreement": None,
         }
         
         # Calculate basic edge support first to adapt thresholds
@@ -617,78 +857,110 @@ class CircleExtractor:
         
         # Adaptive thresholds based on edge quality - more lenient for high-quality edges
         edge_quality_factor = min(1.0, basic_edge_support / 0.7)  # Scale factor [0,1] for adaptation
-        
-        # 1. Angular coverage analysis
-        if self.angular_coverage_required:
-            angular_result = self._analyze_angular_coverage(center, radius, edge_image)
-            result["angular_coverage"] = angular_result["coverage"]
-            result["sector_coverage"] = angular_result["sector_coverage"]
-            result["angular_uniformity"] = angular_result["uniformity"]
-            result["contour_agreement"] = bool(angular_result["sector_coverage"] > 0.5 and angular_result["uniformity"] > 0.25)
-            
-            # Reject localized or cluster-biased support.
-            min_coverage = max(self.min_angular_coverage * (0.5 + 0.3 * edge_quality_factor), 0.45)
-            
-            if angular_result["coverage"] < min_coverage:
-                result["valid"] = False
-                result["rejection_reason"] = f"Insufficient angular coverage: {angular_result['coverage']:.2f} < {min_coverage:.2f}"
-                return result
-            
-            min_sector = max(self.min_sector_coverage * (0.6 + 0.2 * edge_quality_factor), 0.35)
-            if angular_result["sector_coverage"] < min_sector:
-                result["valid"] = False  
-                result["rejection_reason"] = f"Insufficient sector coverage: {angular_result['sector_coverage']:.2f} < {min_sector:.2f}"
-                return result
+        angular_result = self._analyze_angular_coverage(center, radius, edge_image)
+        continuity_result = self._analyze_edge_continuity(center, radius, edge_image)
+        radial_result = self._analyze_radial_consistency(center, radius, edge_image)
+        contrast_result = self._analyze_local_contrast(center, radius, intensity_image)
+        polarity_result = self._analyze_radial_polarity(center, radius, intensity_image)
 
-            if angular_result["uniformity"] < 0.2:
-                result["valid"] = False
-                result["rejection_reason"] = (
-                    "Localized angular support: evidence concentrated in a small arc "
-                    f"instead of a distributed ring (uniformity={angular_result['uniformity']:.2f})"
+        result.update({
+            "angular_coverage": angular_result["coverage"],
+            "sector_coverage": angular_result["sector_coverage"],
+            "angular_uniformity": angular_result["uniformity"],
+            "max_gap_ratio": continuity_result["max_gap_ratio"],
+            "radial_consistency": radial_result["consistency"],
+            "local_contrast": contrast_result["contrast"],
+            "radial_polarity_coherence": polarity_result["coherence"],
+            "radial_polarity_coverage": polarity_result["coverage"],
+            "radial_polarity_positive_fraction": polarity_result["positive_fraction"],
+            "contour_agreement": False,
+        })
+
+        rejection_reasons = []
+        min_coverage = max(self.min_angular_coverage * (0.5 + 0.3 * edge_quality_factor), 0.45)
+        min_sector = max(self.min_sector_coverage * (0.6 + 0.2 * edge_quality_factor), 0.35)
+        max_gap_allowed = min(self.max_edge_gap_ratio, 0.35)
+        min_radial = max(self.min_radial_agreement, 0.55)
+        min_contrast = self.min_local_contrast * (0.4 + 0.4 * (1.0 - edge_quality_factor))
+
+        if self.angular_coverage_required and angular_result["coverage"] < min_coverage:
+            rejection_reasons.append(f"Insufficient angular coverage: {angular_result['coverage']:.2f} < {min_coverage:.2f}")
+        if self.angular_coverage_required and angular_result["sector_coverage"] < min_sector:
+            rejection_reasons.append(f"Insufficient sector coverage: {angular_result['sector_coverage']:.2f} < {min_sector:.2f}")
+        if self.angular_coverage_required and angular_result["uniformity"] < 0.2:
+            rejection_reasons.append(f"Localized angular support: uniformity={angular_result['uniformity']:.2f}")
+        if self.edge_continuity_required and continuity_result["max_gap_ratio"] > max_gap_allowed:
+            rejection_reasons.append(f"Excessive edge gaps: {continuity_result['max_gap_ratio']:.2f} > {max_gap_allowed:.2f}")
+        if self.radial_consistency_required and radial_result["consistency"] < min_radial:
+            rejection_reasons.append(f"Poor radial consistency: {radial_result['consistency']:.2f} < {min_radial:.2f}")
+        if self.texture_discrimination and contrast_result["contrast"] < min_contrast:
+            rejection_reasons.append(f"Texture-like evidence: contrast {contrast_result['contrast']:.1f} < {min_contrast:.1f}")
+        if self.radial_polarity_required:
+            if polarity_result["coherence"] < self.min_radial_polarity_coherence:
+                rejection_reasons.append(
+                    "Inconsistent radial transition polarity: "
+                    f"{polarity_result['coherence']:.2f} < {self.min_radial_polarity_coherence:.2f}"
                 )
-                return result
-        
-        # 2. Edge continuity analysis - keep it strict enough to reject local arcs
-        if self.edge_continuity_required:
-            continuity_result = self._analyze_edge_continuity(center, radius, edge_image)
-            result["max_gap_ratio"] = continuity_result["max_gap_ratio"]
-            max_gap_allowed = min(self.max_edge_gap_ratio, 0.35)
-            if continuity_result["max_gap_ratio"] > max_gap_allowed:
-                result["valid"] = False
-                result["rejection_reason"] = f"Excessive edge gaps: {continuity_result['max_gap_ratio']:.2f} > {max_gap_allowed:.2f}"
-                return result
-        
-        # 3. Radial consistency analysis - require evidence in the actual radius band
-        if self.radial_consistency_required:
-            radial_result = self._analyze_radial_consistency(center, radius, edge_image)
-            result["radial_consistency"] = radial_result["consistency"]
-            min_radial = max(self.min_radial_agreement, 0.55)
-            if radial_result["consistency"] < min_radial:
-                result["valid"] = False
-                result["rejection_reason"] = f"Poor radial consistency: {radial_result['consistency']:.2f} < {min_radial:.2f}"
-                return result
-        
-        # 4. Texture discrimination - only strict for weak edge cases
-        if self.texture_discrimination:
-            contrast_result = self._analyze_local_contrast(center, radius, intensity_image)
-            result["local_contrast"] = contrast_result["contrast"]
-            min_contrast = self.min_local_contrast * (0.4 + 0.4 * (1.0 - edge_quality_factor))
-            if contrast_result["contrast"] < min_contrast:
-                result["valid"] = False
-                result["rejection_reason"] = f"Texture-like evidence: contrast {contrast_result['contrast']:.1f} < {min_contrast:.1f}"
-                return result
-        
-        # 5. Calculate evidence-based geometric properties
+            if polarity_result["coverage"] < self.min_radial_polarity_coverage:
+                rejection_reasons.append(
+                    "Insufficient radial transition coverage: "
+                    f"{polarity_result['coverage']:.2f} < {self.min_radial_polarity_coverage:.2f}"
+                )
+
+        result["valid"] = not rejection_reasons
+        result["rejection_reason"] = "; ".join(rejection_reasons)
         result["intensity_consistency"] = self._calculate_intensity_consistency(center, radius, intensity_image)
-        edge_uniformity = angular_result["uniformity"] if self.angular_coverage_required else 0.5
+
+        # These are derived summaries, not independent measurements of a fitted contour.
+        edge_uniformity = angular_result["uniformity"]
         result["circularity_evidence"] = min(1.0, (result["angular_coverage"] + edge_uniformity + basic_edge_support) / 3.0)
-        result["solidity_evidence"] = min(1.0, result["radial_consistency"] * 1.2) if self.radial_consistency_required else min(1.0, basic_edge_support * 1.1)
+        result["solidity_evidence"] = min(1.0, result["radial_consistency"] * 1.2)
         result["convexity_evidence"] = min(1.0, result["edge_support"] * 1.1)
         result["contour_quality"] = result["circularity_evidence"]
         result["geometric_consistency"] = (result["circularity_evidence"] + result["solidity_evidence"]) / 2.0
         result["intensity_evidence"] = result["intensity_consistency"]
         
         return result
+
+    def _analyze_radial_polarity(self, center: Tuple[float, float], radius: float,
+                                 intensity_image: np.ndarray) -> dict:
+        """Measure whether image transitions around a candidate share one radial polarity."""
+        source_id = id(intensity_image)
+        if source_id != self._radial_gradient_source_id:
+            gray = cv2.cvtColor(intensity_image, cv2.COLOR_BGR2GRAY) if intensity_image.ndim == 3 else intensity_image
+            self._radial_gradient_x = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+            self._radial_gradient_y = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+            self._radial_gradient_source_id = source_id
+        gradient_x = self._radial_gradient_x
+        gradient_y = self._radial_gradient_y
+        h, w = gradient_x.shape
+        signed_transitions = []
+
+        for angle in np.linspace(0, 2 * np.pi, self.radial_polarity_samples, endpoint=False):
+            cosine, sine = np.cos(angle), np.sin(angle)
+            strongest_transition = 0.0
+            for radial_offset in range(-self.radial_polarity_search_pixels, self.radial_polarity_search_pixels + 1):
+                sample_radius = max(1.0, radius + radial_offset)
+                x = int(round(center[0] + sample_radius * cosine))
+                y = int(round(center[1] + sample_radius * sine))
+                if 0 <= x < w and 0 <= y < h:
+                    transition = float(gradient_x[y, x] * cosine + gradient_y[y, x] * sine)
+                    if abs(transition) > abs(strongest_transition):
+                        strongest_transition = transition
+            if abs(strongest_transition) >= self.radial_polarity_min_gradient:
+                signed_transitions.append(strongest_transition)
+
+        coverage = len(signed_transitions) / self.radial_polarity_samples
+        if not signed_transitions:
+            return {"coherence": 0.0, "coverage": 0.0, "positive_fraction": 0.0}
+
+        transitions = np.asarray(signed_transitions, dtype=np.float32)
+        coherence = abs(float(np.sum(transitions))) / (float(np.sum(np.abs(transitions))) + 1e-6)
+        return {
+            "coherence": coherence,
+            "coverage": coverage,
+            "positive_fraction": float(np.mean(transitions > 0)),
+        }
     
     def _analyze_angular_coverage(self, center: Tuple[float, float], radius: float, 
                                  edge_image: np.ndarray) -> dict:
@@ -867,18 +1139,15 @@ class CircleExtractor:
         if not validation_result["valid"]:
             return 0.0
         
-        # Weight actual evidence components
-        edge_score = validation_result["edge_support"]
-        angular_score = validation_result["angular_coverage"]
-        consistency_score = validation_result["geometric_consistency"]
-        intensity_score = validation_result["intensity_consistency"]
-
-        # Base confidence from evidence
+        # Edge support, angular coverage, and radial consistency share the edge map;
+        # confidence also requires image-intensity polarity evidence.
         base_confidence = (
-            0.3 * edge_score +
-            0.25 * angular_score + 
-            0.25 * consistency_score +
-            0.2 * intensity_score
+            HOUGH_CONFIDENCE_EDGE_SUPPORT_WEIGHT * validation_result.get("edge_support", 0.0)
+            + HOUGH_CONFIDENCE_ANGULAR_COVERAGE_WEIGHT * validation_result.get("angular_coverage", 0.0)
+            + HOUGH_CONFIDENCE_RADIAL_CONSISTENCY_WEIGHT * validation_result.get("radial_consistency", 0.0)
+            + HOUGH_CONFIDENCE_INTENSITY_CONSISTENCY_WEIGHT * validation_result.get("intensity_consistency", 0.0)
+            + HOUGH_CONFIDENCE_POLARITY_COHERENCE_WEIGHT * validation_result.get("radial_polarity_coherence", 0.0)
+            + HOUGH_CONFIDENCE_POLARITY_COVERAGE_WEIGHT * validation_result.get("radial_polarity_coverage", 0.0)
         )
 
         # Hough-only candidates require additional evidence. Without distributed ring
@@ -886,131 +1155,7 @@ class CircleExtractor:
         if not validation_result.get('contour_agreement', False):
             base_confidence *= (1.0 - self.hough_only_penalty)
 
-        if validation_result.get('sector_coverage', 0.0) < 0.35:
-            base_confidence *= 0.8
-
         return min(1.0, max(0.0, base_confidence))
-    
-    def _apply_enhanced_cluster_consolidation(self, circles: List[ActualFeature]) -> List[ActualFeature]:
-        """Apply enhanced cluster consolidation with scale-aware distance and evidence-based selection."""
-        if len(circles) <= 1:
-            return circles
-        
-        # Group circles into clusters
-        clusters = []
-        used_indices = set()
-        
-        for i, circle1 in enumerate(circles):
-            if i in used_indices:
-                continue
-            
-            cluster = [i]
-            used_indices.add(i)
-            
-            for j, circle2 in enumerate(circles[i+1:], start=i+1):
-                if j in used_indices:
-                    continue
-                
-                if self._should_cluster_circles(circle1, circle2):
-                    cluster.append(j)
-                    used_indices.add(j)
-            
-            # Add the completed cluster to the list
-            clusters.append(cluster)
-        
-        # Select best representative from each cluster
-        consolidated_circles = []
-        
-        for cluster_indices in clusters:
-            if len(cluster_indices) == 1:
-                consolidated_circles.append(circles[cluster_indices[0]])
-            else:
-                # Select best circle from cluster based on evidence quality
-                cluster_circles = [circles[i] for i in cluster_indices]
-                best_circle = self._select_best_from_cluster(cluster_circles)
-                consolidated_circles.append(best_circle)
-                
-                # Log consolidation for diagnostics
-                logger.debug(f"Consolidated cluster of {len(cluster_circles)} circles into best representative")
-        
-        return consolidated_circles
-    
-    def _should_cluster_circles(self, circle1: ActualFeature, circle2: ActualFeature) -> bool:
-        """Determine if two circles should be clustered using scale-aware distance."""
-        center1 = circle1.geometry.center
-        center2 = circle2.geometry.center
-        radius1 = getattr(circle1.geometry, 'radius', 0)
-        radius2 = getattr(circle2.geometry, 'radius', 0)
-        
-        # Calculate center distance
-        center_distance = np.sqrt((center1[0] - center2[0])**2 + (center1[1] - center2[1])**2)
-        
-        if self.scale_aware_distance:
-            # Use scale-aware clustering distance
-            larger_radius = max(radius1, radius2)
-            cluster_distance = larger_radius * self.cluster_radius_factor
-            
-            if center_distance > cluster_distance:
-                return False
-        else:
-            # Use fixed distance
-            if center_distance > self.strict_center_distance:
-                return False
-        
-        # Check for concentric circles if enabled
-        if self.concentric_detection:
-            radius_ratio = min(radius1, radius2) / max(radius1, radius2) if max(radius1, radius2) > 0 else 0
-            if (center_distance < min(radius1, radius2) * 0.3 and  # Very close centers
-                abs(radius1 - radius2) / max(radius1, radius2) > self.concentric_radius_tolerance):
-                return True  # Concentric circles should be clustered
-        
-        # Check radius compatibility
-        if radius1 > 0 and radius2 > 0:
-            radius_ratio = min(radius1, radius2) / max(radius1, radius2)
-            if radius_ratio < (1.0 - self.cluster_radius_tolerance):
-                return False
-        
-        # Check area compatibility
-        area1 = circle1.geometry.area
-        area2 = circle2.geometry.area
-        if area1 > 0 and area2 > 0:
-            area_ratio = min(area1, area2) / max(area1, area2)
-            if area_ratio < 0.5:  # Very different sizes
-                return False
-        
-        return True
-    
-    def _select_best_from_cluster(self, cluster_circles: List[ActualFeature]) -> ActualFeature:
-        """Select the best representative circle from a cluster based on evidence quality."""
-        if not cluster_circles:
-            return None
-        
-        if len(cluster_circles) == 1:
-            return cluster_circles[0]
-        
-        if self.evidence_based_consolidation:
-            # Score based on evidence quality, not just confidence
-            best_circle = None
-            best_score = -1.0
-            
-            for circle in cluster_circles:
-                # Combine multiple evidence factors
-                evidence_score = (
-                    0.3 * circle.evidence.edge_support +
-                    0.25 * getattr(circle.evidence, 'angular_coverage', 0.5) +
-                    0.2 * circle.evidence.intensity_consistency +
-                    0.15 * circle.evidence.geometric_consistency +
-                    0.1 * (1.0 if circle.detection_method == "contour_analysis" else 0.5)  # Slight preference for contour-based
-                )
-                
-                if evidence_score > best_score:
-                    best_score = evidence_score
-                    best_circle = circle
-            
-            return best_circle
-        else:
-            # Fall back to confidence-based selection
-            return max(cluster_circles, key=lambda c: c.evidence.confidence)
     
     def _calculate_solidity(self, contour: np.ndarray) -> float:
         """Calculate solidity (area/convex_hull_area)."""

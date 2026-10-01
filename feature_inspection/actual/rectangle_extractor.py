@@ -45,6 +45,7 @@ class RectangleExtractor:
         self.side_ratio_tolerance = RECTANGLE_SIDE_RATIO_TOLERANCE
         self.min_confidence = FEATURE_MIN_CONFIDENCE
         self.mask_overlap_threshold = FEATURE_PRODUCT_MASK_OVERLAP_THRESHOLD
+        self.last_diagnostics = {}
     
     def extract_rectangles(self, 
                           internal_edges: np.ndarray,
@@ -79,9 +80,26 @@ class RectangleExtractor:
         
         # Validate and refine candidates
         validated_rectangles = []
+        validated_by_detector = {}
         for candidate in candidates:
             if self._validate_rectangle_candidate(candidate, internal_edges, isolated_product, product_mask):
                 validated_rectangles.append(candidate)
+                key = f"rectangle_{candidate.detection_method}:{candidate.source_representation}"
+                validated_by_detector[key] = validated_by_detector.get(key, 0) + 1
+
+        raw_by_detector = {}
+        for candidate in candidates:
+            key = f"rectangle_{candidate.detection_method}:{candidate.source_representation}"
+            raw_by_detector[key] = raw_by_detector.get(key, 0) + 1
+        self.last_diagnostics = {
+            "raw_candidates_by_detector": raw_by_detector,
+            "prevalidation_candidates_by_detector": raw_by_detector.copy(),
+            "validated_candidates_by_detector": validated_by_detector,
+            "rejected_by_validation_by_detector": {
+                key: count - validated_by_detector.get(key, 0)
+                for key, count in raw_by_detector.items()
+            },
+        }
         
         logger.info(f"Rectangle extraction: {len(candidates)} candidates -> {len(validated_rectangles)} validated")
         return validated_rectangles
